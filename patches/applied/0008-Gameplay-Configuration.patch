@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Sofiane H. Djerbi" <46628754+kugge@users.noreply.github.com>
+Date: Sat, 8 Apr 2023 23:32:34 +0300
+Subject: [PATCH] Gameplay Configuration
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 90d97f3e0500a38e64ec0b88b2cab6ef28640c10..859c2ac4e46b840f9552d1ccbf9409c9666e84de 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -212,4 +212,7 @@ public class KaiijuConfig {
+ 
+     private static void optimizationSettings() {
+     }
++
++    private static void gameplaySettings() {
++    }
+ }
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+index 6bd14857e0b0ef233f17f1a6e3e0fb313d59f641..05f9c01131e78927d88f1170c3eda4adf25ac8ba 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+@@ -146,4 +146,7 @@ public class KaiijuWorldConfig {
+ 
+     private void optimizationSettings() {
+     }
++
++    private void gameplaySettings() {
++    }
+ }

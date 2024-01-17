@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 22 Jun 2023 00:37:27 +0200
+Subject: [PATCH] Option to disable arm swing event
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index b11a329ead2347917d24d932c9a1a826d288f5b6..2f3827441987528d79d9268002c7a7671faff429 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -212,10 +212,12 @@ public class KaiijuConfig {
+ 
+     public static boolean disableVanishApi = false;
+     public static boolean disablePlayerStats = false;
++    public static boolean disableArmSwingEvent = false;
+ 
+     private static void optimizationSettings() {
+         disableVanishApi = getBoolean("optimization.disable-vanish-api", disableVanishApi);
+         disablePlayerStats = getBoolean("optimization.disable-player-stats", disablePlayerStats);
++        disableArmSwingEvent = getBoolean("optimization.disable-arm-swing-event", disableArmSwingEvent);
+     }
+ 
+     public static String serverModName = "Kaiiju";
+diff --git a/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java b/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java
+index 159d3a27c1686fd2b0025cab5b7e7775679c4ce9..036192d13dbbe52c7d8d7c59e7770036327ae370 100644
+--- a/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java
++++ b/src/main/java/net/minecraft/server/network/ServerGamePacketListenerImpl.java
+@@ -2537,6 +2537,7 @@ public class ServerGamePacketListenerImpl extends ServerCommonPacketListenerImpl
+         PacketUtils.ensureRunningOnSameThread(packet, this, this.player.serverLevel());
+         if (this.player.isImmobile()) return; // CraftBukkit
+         this.player.resetLastActionTime();
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableArmSwingEvent) { // Kaiiju
+         // CraftBukkit start - Raytrace to look for 'rogue armswings'
+         float f1 = this.player.getXRot();
+         float f2 = this.player.getYRot();
+@@ -2569,6 +2570,7 @@ public class ServerGamePacketListenerImpl extends ServerCommonPacketListenerImpl
+ 
+         if (event.isCancelled()) return;
+         // CraftBukkit end
++        } // Kaiiju
+         this.player.swing(packet.getHand());
+     }
+ 

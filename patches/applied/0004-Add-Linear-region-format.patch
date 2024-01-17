@@ -9,7 +9,7 @@ This format saves about 50% of disk space.
 Documentation: https://github.com/xymb-endcrystalme/LinearRegionFileFormatTools
 
 diff --git a/build.gradle.kts b/build.gradle.kts
-index f282bae28ef193b54989a97890ec81f421bf6ef1..e8a0af6b419fef61a1d9c7e806c4d886f711b26b 100644
+index c600445e2bf7b9d84e1ef68db18b4feaaf026d8b..788cc23c9598e18041c4ae19fbb409db527f7f71 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
 @@ -19,6 +19,10 @@ dependencies {
@@ -598,10 +598,10 @@ index 513833c2ea23df5b079d157bc5cb89d5c9754c0b..abf5e2a06af9853b58ac9107cd6e9787
          long expectedChunks = (long)regionFiles.length * (32L * 32L);
  
 diff --git a/src/main/java/net/minecraft/server/level/ChunkMap.java b/src/main/java/net/minecraft/server/level/ChunkMap.java
-index d7dc0c26b6093455ff32e60f6541f4b8923a35b3..b2d3257f35ad7cd036aa6d047d7aac98de856380 100644
+index 50597a8b45bbd7dcc40b361da78358d9d01f5484..56b02cc93ef7d8c605ba0c3b135a07f08b27df7c 100644
 --- a/src/main/java/net/minecraft/server/level/ChunkMap.java
 +++ b/src/main/java/net/minecraft/server/level/ChunkMap.java
-@@ -211,7 +211,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+@@ -212,7 +212,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
      // Paper end - optimise chunk tick iteration
  
      public ChunkMap(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor executor, BlockableEventLoop<Runnable> mainThreadExecutor, LightChunkGetter chunkProvider, ChunkGenerator chunkGenerator, ChunkProgressListener worldGenerationProgressListener, ChunkStatusUpdateListener chunkStatusChangeListener, Supplier<DimensionDataStorage> persistentStateManagerFactory, int viewDistance, boolean dsync) {
@@ -610,7 +610,7 @@ index d7dc0c26b6093455ff32e60f6541f4b8923a35b3..b2d3257f35ad7cd036aa6d047d7aac98
          // Paper - rewrite chunk system
          this.tickingGenerated = new AtomicInteger();
          //this.playerMap = new PlayerMap(); // Folia - region threading
-@@ -256,7 +256,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+@@ -257,7 +257,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
          this.lightEngine = new ThreadedLevelLightEngine(chunkProvider, this, this.level.dimensionType().hasSkyLight(), null, null); // Paper - rewrite chunk system
          this.distanceManager = new ChunkMap.ChunkDistanceManager(executor, mainThreadExecutor);
          this.overworldDataStorage = persistentStateManagerFactory;
@@ -619,7 +619,7 @@ index d7dc0c26b6093455ff32e60f6541f4b8923a35b3..b2d3257f35ad7cd036aa6d047d7aac98
          this.setServerViewDistance(viewDistance);
          // Paper start
          this.dataRegionManager = new io.papermc.paper.chunk.SingleThreadChunkRegionManager(this.level, 2, (1.0 / 3.0), 1, 6, "Data", DataRegionData::new, DataRegionSectionData::new);
-@@ -822,13 +822,13 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+@@ -823,13 +823,13 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
  
      // Paper start - chunk status cache "api"
      public ChunkStatus getChunkStatusOnDiskIfCached(ChunkPos chunkPos) {
@@ -635,7 +635,7 @@ index d7dc0c26b6093455ff32e60f6541f4b8923a35b3..b2d3257f35ad7cd036aa6d047d7aac98
  
          if (regionFile == null || !regionFileCache.chunkExists(chunkPos)) {
              return null;
-@@ -846,7 +846,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+@@ -847,7 +847,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
      }
  
      public void updateChunkStatusOnDisk(ChunkPos chunkPos, @Nullable CompoundTag compound) throws IOException {
@@ -645,10 +645,10 @@ index d7dc0c26b6093455ff32e60f6541f4b8923a35b3..b2d3257f35ad7cd036aa6d047d7aac98
          regionFile.setStatus(chunkPos.x, chunkPos.z, ChunkSerializer.getStatus(compound));
      }
 diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
-index 788d6581e5283d6cbdefec158a00cc30aa67aaa9..0772e88f888d241991087f4b2462c0a42f0bd708 100644
+index 724aa1d8147ea2fb5e46d291adacfb7e1f5b5f62..8526e6918e094aa74bd7a3df626313fb0fadf9a3 100644
 --- a/src/main/java/net/minecraft/server/level/ServerLevel.java
 +++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
-@@ -453,8 +453,8 @@ public class ServerLevel extends Level implements WorldGenLevel {
+@@ -451,8 +451,8 @@ public class ServerLevel extends Level implements WorldGenLevel {
  
      private static final class EntityRegionFileStorage extends net.minecraft.world.level.chunk.storage.RegionFileStorage {
  
@@ -659,7 +659,7 @@ index 788d6581e5283d6cbdefec158a00cc30aa67aaa9..0772e88f888d241991087f4b2462c0a4
          }
  
          protected void write(ChunkPos pos, net.minecraft.nbt.CompoundTag nbt) throws IOException {
-@@ -815,7 +815,7 @@ public class ServerLevel extends Level implements WorldGenLevel {
+@@ -808,7 +808,7 @@ public class ServerLevel extends Level implements WorldGenLevel {
          // CraftBukkit end
          boolean flag2 = minecraftserver.forceSynchronousWrites();
          DataFixer datafixer = minecraftserver.getFixerUpper();
@@ -669,12 +669,12 @@ index 788d6581e5283d6cbdefec158a00cc30aa67aaa9..0772e88f888d241991087f4b2462c0a4
          // this.entityManager = new PersistentEntitySectionManager<>(Entity.class, new ServerLevel.EntityCallbacks(), entitypersistentstorage, this.entitySliceManager); // Paper // Paper - rewrite chunk system
          StructureTemplateManager structuretemplatemanager = minecraftserver.getStructureManager();
 diff --git a/src/main/java/net/minecraft/util/worldupdate/WorldUpgrader.java b/src/main/java/net/minecraft/util/worldupdate/WorldUpgrader.java
-index f2a7cb6ebed7a4b4019a09af2a025f624f6fe9c9..6217528313f00a880b143130126aa8fb931eca50 100644
+index e16ef1b7c0bfe6d6194c09f6787a50fd9b28f55e..3b02b7905fd16be28ba986302c1f99dfb5eb2ab8 100644
 --- a/src/main/java/net/minecraft/util/worldupdate/WorldUpgrader.java
 +++ b/src/main/java/net/minecraft/util/worldupdate/WorldUpgrader.java
 @@ -61,7 +61,7 @@ public class WorldUpgrader {
      private volatile int skipped;
-     private final Reference2FloatMap<ResourceKey<Level>> progressMap = Reference2FloatMaps.synchronize(new Reference2FloatOpenHashMap());
+     private final Object2FloatMap<ResourceKey<Level>> progressMap = Object2FloatMaps.synchronize(new Object2FloatOpenCustomHashMap(Util.identityStrategy()));
      private volatile Component status = Component.translatable("optimizeWorld.stage.counting");
 -    public static final Pattern REGEX = Pattern.compile("^r\\.(-?[0-9]+)\\.(-?[0-9]+)\\.mca$");
 +    public static Pattern REGEX = Pattern.compile("^r\\.(-?[0-9]+)\\.(-?[0-9]+)\\.(linear | mca)$"); // Kaiiju
@@ -812,7 +812,7 @@ index 9248769e6d357f6eec68945fd7700e79b2942c41..024870a31469c40cd680be0399ce0e0e
          try (DataInputStream out = new DataInputStream(new java.io.BufferedInputStream(new InflaterInputStream(Files.newInputStream(file))))) {
              return NbtIo.read((java.io.DataInput) out);
 diff --git a/src/main/java/net/minecraft/world/level/chunk/storage/RegionFileStorage.java b/src/main/java/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
-index 6eaeb2db0da59611501f2b1a63b5b48816a0ba48..14366a9b2d6e9486e516fa8308c0c5f71d8f5a6c 100644
+index db571f658f636cdda1dcdbaffa0c4da67fae11ad..21537b14c6c6789da3db04577f1c93998397678d 100644
 --- a/src/main/java/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
 +++ b/src/main/java/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
 @@ -21,9 +21,13 @@ public class RegionFileStorage implements AutoCloseable {
@@ -1066,10 +1066,10 @@ index 4aac1979cf57300825a999c876fcf24d3170e68e..3b96582f15d0985b670b5b5a1548800d
          this.factory = factory;
          this.fixerUpper = dataFixer;
 diff --git a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
-index 085eebd879bc514dc9f785ea31fc6c0f7a066953..2aa03157d4272233db762bf4d1c716ea6cb3085d 100644
+index bcbf7ba7c687ecaa530d4de3af45ebeb80dd15c5..f19db38e64854d051d4d8dbbb3ff4236b5d4537b 100644
 --- a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
 +++ b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
-@@ -569,7 +569,7 @@ public class CraftWorld extends CraftRegionAccessor implements World {
+@@ -561,7 +561,7 @@ public class CraftWorld extends CraftRegionAccessor implements World {
                  return true;
              }
  

@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Sofiane H. Djerbi" <46628754+kugge@users.noreply.github.com>
+Date: Thu, 16 Feb 2023 01:38:59 +0200
+Subject: [PATCH] Network configuration
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index b7f43cce80742aa0cd523e930772ff84946f3eef..fa829cef4033625470dfae29ddf777e6c5ab8c55 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -203,4 +203,7 @@ public class KaiijuConfig {
+         else
+             linearFlushThreads = Math.max(linearFlushThreads, 1);
+     }
++
++    private static void networkSettings() {
++    }
+ }

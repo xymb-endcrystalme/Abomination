@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Sofiane H. Djerbi" <46628754+kugge@users.noreply.github.com>
+Date: Sun, 28 May 2023 01:51:52 +0300
+Subject: [PATCH] Toggle sand duplication
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+index cfa197580ccebe5db4fd9b5aee058fbd8727530a..222cd510428e373809fcca9903ea22762683b192 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+@@ -158,9 +158,11 @@ public class KaiijuWorldConfig {
+ 
+     public boolean fixVoidTrading = true;
+     public boolean breakRedstoneOnTopOfTrapDoorsEarly = true;
++    public boolean sandDuplication = false;
+ 
+     private void gameplaySettings() {
+         fixVoidTrading = getBoolean("gameplay.fix-void-trading", fixVoidTrading);
+         breakRedstoneOnTopOfTrapDoorsEarly = getBoolean("gameplay.break-redstone-on-top-of-trap-doors-early", breakRedstoneOnTopOfTrapDoorsEarly);
++        sandDuplication = getBoolean("gameplay.sand-duplication", sandDuplication);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/world/entity/item/FallingBlockEntity.java b/src/main/java/net/minecraft/world/entity/item/FallingBlockEntity.java
+index acf2bfe7421774c1a8d8ac1a23b34880df6cab6a..b447b662c58c80b848d67a7d72ae6476d52faa67 100644
+--- a/src/main/java/net/minecraft/world/entity/item/FallingBlockEntity.java
++++ b/src/main/java/net/minecraft/world/entity/item/FallingBlockEntity.java
+@@ -133,7 +133,7 @@ public class FallingBlockEntity extends Entity {
+     @Override
+     public void tick() {
+         // Paper start - fix sand duping
+-        if (this.isRemoved()) {
++        if (!this.level().kaiijuConfig.sandDuplication && this.isRemoved()) { // Kaiiju - Toggle sand duplication
+             return;
+         }
+         // Paper end - fix sand duping
+@@ -150,7 +150,7 @@ public class FallingBlockEntity extends Entity {
+             this.move(MoverType.SELF, this.getDeltaMovement());
+ 
+             // Paper start - fix sand duping
+-            if (this.isRemoved()) {
++            if (!this.level().kaiijuConfig.sandDuplication && this.isRemoved()) { // Kaiiju - Toggle sand duplication
+                 return;
+             }
+             // Paper end - fix sand duping

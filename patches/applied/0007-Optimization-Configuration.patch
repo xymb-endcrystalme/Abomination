@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: kugge <sofiane.djerbi38@gmail.com>
+Date: Wed, 21 Jun 2023 17:26:24 +0200
+Subject: [PATCH] Optimization Configuration
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 47e23a196ae5e44600a64184b69141c00235baca..90d97f3e0500a38e64ec0b88b2cab6ef28640c10 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -209,4 +209,7 @@ public class KaiijuConfig {
+     private static void networkSettings() {
+         sendNullEntityPackets = getBoolean("network.send-null-entity-packets", sendNullEntityPackets);
+     }
++
++    private static void optimizationSettings() {
++    }
+ }
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+index a6e7af5f4148e067660e9f5beeacde3a59a1de9c..6bd14857e0b0ef233f17f1a6e3e0fb313d59f641 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+@@ -143,4 +143,7 @@ public class KaiijuWorldConfig {
+             regionFormatLinearCompressionLevel = 1;
+         }
+     }
++
++    private void optimizationSettings() {
++    }
+ }

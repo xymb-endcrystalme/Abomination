@@ -20,14 +20,14 @@ index 23b43de57a07b2b7b180f1aabd17e7e30830b521..59b41c29f42072ec2d3ba03b09e0ead8
  
      public static String serverModName = "Kaiiju";
 diff --git a/src/main/java/net/minecraft/server/level/ChunkMap.java b/src/main/java/net/minecraft/server/level/ChunkMap.java
-index 04e249699e1c1a82d4c94b94b815ffa8fd97a99e..fbb0723ebd7dfef04252de694dc29b979c563452 100644
+index dfe29d3a327593030608d4c42bf20d2aa4495fb2..dc0d37ce46901266d7ef726de2934c6910071379 100644
 --- a/src/main/java/net/minecraft/server/level/ChunkMap.java
 +++ b/src/main/java/net/minecraft/server/level/ChunkMap.java
-@@ -1376,7 +1376,11 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+@@ -1419,7 +1419,11 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
                  // Folia end - region threading
  
                  // CraftBukkit start - respect vanish API
--                if (flag && (!io.papermc.paper.util.TickThread.isTickThreadFor(player) || !player.getBukkitEntity().canSee(this.entity.getBukkitEntity()))) { // Folia - region threading
+-                if (flag && (!io.papermc.paper.util.TickThread.isTickThreadFor(player) || !player.getBukkitEntity().canSee(this.entity.getBukkitEntity()))) { // Paper - only consider hits // Folia - region threading
 +                // Kaiiju start - don't respect vanish API >:D
 +                boolean canSee = true;
 +                if (flag && !dev.kaiijumc.kaiiju.KaiijuConfig.disableVanishApi) canSee = player.getBukkitEntity().canSee(this.entity.getBukkitEntity());

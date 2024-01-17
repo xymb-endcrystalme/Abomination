@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 22 Jun 2023 00:17:57 +0200
+Subject: [PATCH] Option to disable player stats
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 2041733197e46e520a07f2aac15a5c4c37f2d378..c973efa1370b76f78d9fd9f1055da2b716fe1115 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -211,9 +211,11 @@ public class KaiijuConfig {
+     }
+ 
+     public static boolean disableVanishApi = false;
++    public static boolean disablePlayerStats = false;
+ 
+     private static void optimizationSettings() {
+         disableVanishApi = getBoolean("optimization.disable-vanish-api", disableVanishApi);
++        disablePlayerStats = getBoolean("optimization.disable-player-stats", disablePlayerStats);
+     }
+ 
+     public static String serverModName = "Kaiiju";
+diff --git a/src/main/java/net/minecraft/server/level/ServerPlayer.java b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+index 3d2b059254fdc08d1e4f9281946028a46884d7c8..157158bb002ee4e81ea23eb3fa7a545ce309a1c3 100644
+--- a/src/main/java/net/minecraft/server/level/ServerPlayer.java
++++ b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+@@ -2252,6 +2252,7 @@ public class ServerPlayer extends Player {
+ 
+     @Override
+     public void awardStat(Stat<?> stat, int amount) {
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.disablePlayerStats) return; // Kaiiju - Disable player stats
+         this.stats.increment(this, stat, amount);
+         this.level().getCraftServer().getScoreboardManager().forAllObjectives(stat, this, (scoreaccess) -> {
+             scoreaccess.add(amount);

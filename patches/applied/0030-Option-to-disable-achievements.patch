@@ -24,7 +24,7 @@ index 9f0095f2196133a8bcffd5306aa9ac0b99b2f8d7..31d66bb2fcf4bb7262df2d8006e307fe
  
      public boolean fixVoidTrading = true;
 diff --git a/src/main/java/net/minecraft/server/level/ServerPlayer.java b/src/main/java/net/minecraft/server/level/ServerPlayer.java
-index 374dc5fd0ad15ace5314f2b9c675d1770a43f45a..0a65f35f247a39e89d64721499162b419475da4f 100644
+index 3843ea36f1fb23947fa8061282193aac87dae0bf..c138a0a51ee5946fbfef0eee24e1b6d48271fec2 100644
 --- a/src/main/java/net/minecraft/server/level/ServerPlayer.java
 +++ b/src/main/java/net/minecraft/server/level/ServerPlayer.java
 @@ -800,7 +800,7 @@ public class ServerPlayer extends Player {
@@ -155,7 +155,7 @@ index 374dc5fd0ad15ace5314f2b9c675d1770a43f45a..0a65f35f247a39e89d64721499162b41
      }
  
      @Override
-@@ -2856,7 +2856,7 @@ public class ServerPlayer extends Player {
+@@ -2864,7 +2864,7 @@ public class ServerPlayer extends Player {
  
      @Override
      protected void updateUsingItem(ItemStack stack) {
@@ -164,7 +164,7 @@ index 374dc5fd0ad15ace5314f2b9c675d1770a43f45a..0a65f35f247a39e89d64721499162b41
          super.updateUsingItem(stack);
      }
  
-@@ -2885,7 +2885,7 @@ public class ServerPlayer extends Player {
+@@ -2893,7 +2893,7 @@ public class ServerPlayer extends Player {
          Entity entity = item.getOwner();
  
          if (entity != null) {

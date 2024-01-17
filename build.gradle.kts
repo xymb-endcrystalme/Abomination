@@ -4,7 +4,7 @@ import io.papermc.paperweight.util.constants.*
 plugins {
     java
     id("com.github.johnrengelman.shadow") version "8.1.1"
-    id("io.papermc.paperweight.patcher") version "1.5.7"
+    id("io.papermc.paperweight.patcher") version "1.5.11"
 }
 
 allprojects {
@@ -29,9 +29,9 @@ repositories {
 }
 
 dependencies {
-    remapper("net.fabricmc:tiny-remapper:0.8.6:fat")
-    decompiler("net.minecraftforge:forgeflower:2.0.629.0")
-    paperclip("io.papermc:paperclip:3.0.3")
+    remapper("net.fabricmc:tiny-remapper:0.10.0")
+    decompiler("net.minecraftforge:forgeflower:2.0.629.1")
+    paperclip("io.papermc:paperclip:3.0.4-SNAPSHOT")
 }
 
 subprojects {
@@ -85,7 +85,7 @@ tasks.register("foliaRefLatest") {
         )
 
         val foliaLatestCommitJson = layout.cache.resolve("foliaLatestCommit.json");
-        download.get().download("https://api.github.com/repos/PaperMC/Folia/commits/dev/1.20.2", foliaLatestCommitJson);
+        download.get().download("https://api.github.com/repos/PaperMC/Folia/commits/dev/1.20.4", foliaLatestCommitJson);
         val foliaLatestCommit = gson.fromJson<paper.libs.com.google.gson.JsonObject>(foliaLatestCommitJson)["sha"].asString;
 
         copy {

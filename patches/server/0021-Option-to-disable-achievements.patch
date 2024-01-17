@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 22 Jun 2023 00:32:36 +0200
+Subject: [PATCH] Option to disable achievements
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+index 222cd510428e373809fcca9903ea22762683b192..278a4aac4bcb54b71dce39b72a10fce82f94c600 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+@@ -149,11 +149,13 @@ public class KaiijuWorldConfig {
+     public boolean shulkerBoxDropContentsWhenDestroyed = true;
+     public boolean optimizeHoppers = true;
+     public boolean enableEntityThrottling = false;
++    public boolean disableAchievements = false;
+ 
+     private void optimizationSettings() {
+         shulkerBoxDropContentsWhenDestroyed = getBoolean("optimization.shulker-box-drop-contents-when-destroyed", shulkerBoxDropContentsWhenDestroyed);
+         optimizeHoppers = getBoolean("optimization.optimize-hoppers", optimizeHoppers);
+         enableEntityThrottling = getBoolean("optimization.enable-entity-throttling", enableEntityThrottling);
++        disableAchievements = getBoolean("optimization.disable-achievements", disableAchievements);
+     }
+ 
+     public boolean fixVoidTrading = true;
+diff --git a/src/main/java/net/minecraft/server/level/ServerPlayer.java b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+index 157158bb002ee4e81ea23eb3fa7a545ce309a1c3..272a1c14e978fb6a7ce92e737c39fe8db585dc01 100644
+--- a/src/main/java/net/minecraft/server/level/ServerPlayer.java
++++ b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+@@ -807,7 +807,7 @@ public class ServerPlayer extends Player {
+ 
+     @Override
+     protected void onInsideBlock(BlockState state) {
+-        CriteriaTriggers.ENTER_BLOCK.trigger(this, state);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.ENTER_BLOCK.trigger(this, state); // Kaiiju
+     }
+ 
+     @Override
+@@ -854,9 +854,9 @@ public class ServerPlayer extends Player {
+             }
+         }
+ 
+-        CriteriaTriggers.TICK.trigger(this);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.TICK.trigger(this); // Kaiiju
+         if (this.levitationStartPos != null) {
+-            CriteriaTriggers.LEVITATION.trigger(this, this.levitationStartPos, this.tickCount - this.levitationStartTime);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.LEVITATION.trigger(this, this.levitationStartPos, this.tickCount - this.levitationStartTime); // Kaiiju
+         }
+ 
+         this.trackStartFallingPosition();
+@@ -931,7 +931,7 @@ public class ServerPlayer extends Player {
+             }
+ 
+             if (this.tickCount % 20 == 0) {
+-                CriteriaTriggers.LOCATION.trigger(this);
++                if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.LOCATION.trigger(this); // Kaiiju
+             }
+ 
+             // CraftBukkit start - initialize oldLevel, fire PlayerLevelChangeEvent, and tick client-sided world border
+@@ -960,7 +960,7 @@ public class ServerPlayer extends Player {
+     @Override
+     public void resetFallDistance() {
+         if (this.getHealth() > 0.0F && this.startingToFallPosition != null) {
+-            CriteriaTriggers.FALL_FROM_HEIGHT.trigger(this, this.startingToFallPosition);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.FALL_FROM_HEIGHT.trigger(this, this.startingToFallPosition); // Kaiiju
+         }
+ 
+         this.startingToFallPosition = null;
+@@ -979,7 +979,7 @@ public class ServerPlayer extends Player {
+             if (this.enteredLavaOnVehiclePosition == null) {
+                 this.enteredLavaOnVehiclePosition = this.position();
+             } else {
+-                CriteriaTriggers.RIDE_ENTITY_IN_LAVA_TRIGGER.trigger(this, this.enteredLavaOnVehiclePosition);
++                if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.RIDE_ENTITY_IN_LAVA_TRIGGER.trigger(this, this.enteredLavaOnVehiclePosition); // Kaiiju
+             }
+         }
+ 
+@@ -1179,7 +1179,7 @@ public class ServerPlayer extends Player {
+ 
+             this.handleTeamKill(this, entityKilled, ObjectiveCriteria.TEAM_KILL);
+             this.handleTeamKill(entityKilled, this, ObjectiveCriteria.KILLED_BY_TEAM);
+-            CriteriaTriggers.PLAYER_KILLED_ENTITY.trigger(this, entityKilled, damageSource);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.PLAYER_KILLED_ENTITY.trigger(this, entityKilled, damageSource); // Kaiiju
+         }
+     }
+ 
+@@ -1297,7 +1297,7 @@ public class ServerPlayer extends Player {
+         this.wonGame = false;
+ 
+         this.respawn((player) -> {
+-            CriteriaTriggers.CHANGED_DIMENSION.trigger(player, Level.END, Level.OVERWORLD);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.CHANGED_DIMENSION.trigger(player, Level.END, Level.OVERWORLD); // Kaiiju
+         }, true);
+     }
+ 
+@@ -1791,14 +1791,14 @@ public class ServerPlayer extends Player {
+             maindimensionkey1 = resourcekey1;
+         }
+         // Paper end
+-        CriteriaTriggers.CHANGED_DIMENSION.trigger(this, maindimensionkey, maindimensionkey1);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.CHANGED_DIMENSION.trigger(this, maindimensionkey, maindimensionkey1); // Kaiiju
+         if (maindimensionkey != resourcekey || maindimensionkey1 != resourcekey1) {
+-            CriteriaTriggers.CHANGED_DIMENSION.trigger(this, resourcekey, resourcekey1);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.CHANGED_DIMENSION.trigger(this, resourcekey, resourcekey1); // Kaiiju
+         }
+ 
+         if (maindimensionkey == Level.NETHER && maindimensionkey1 == Level.OVERWORLD && this.enteredNetherPosition != null) {
+             // CraftBukkit end
+-            CriteriaTriggers.NETHER_TRAVEL.trigger(this, this.enteredNetherPosition);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.NETHER_TRAVEL.trigger(this, this.enteredNetherPosition); // Kaiiju
+         }
+ 
+         if (maindimensionkey1 != Level.NETHER) { // CraftBukkit
+@@ -1876,7 +1876,7 @@ public class ServerPlayer extends Player {
+                 {
+                     Either<Player.BedSleepingProblem, Unit> either = super.startSleepInBed(blockposition, force).ifRight((unit) -> {
+                         this.awardStat(Stats.SLEEP_IN_BED);
+-                        CriteriaTriggers.SLEPT_IN_BED.trigger(this);
++                        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.SLEPT_IN_BED.trigger(this); // Kaiiju
+                     });
+ 
+                     if (!this.serverLevel().canSleepThroughNights()) {
+@@ -2272,7 +2272,7 @@ public class ServerPlayer extends Player {
+ 
+     @Override
+     public void triggerRecipeCrafted(RecipeHolder<?> recipe, List<ItemStack> ingredients) {
+-        CriteriaTriggers.RECIPE_CRAFTED.trigger(this, recipe.id(), ingredients);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.RECIPE_CRAFTED.trigger(this, recipe.id(), ingredients); // Kaiiju
+     }
+ 
+     @Override
+@@ -2393,14 +2393,14 @@ public class ServerPlayer extends Player {
+             this.levitationStartPos = this.position();
+         }
+ 
+-        CriteriaTriggers.EFFECTS_CHANGED.trigger(this, source);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.EFFECTS_CHANGED.trigger(this, source); // Kaiiju
+     }
+ 
+     @Override
+     protected void onEffectUpdated(MobEffectInstance effect, boolean reapplyEffect, @Nullable Entity source) {
+         super.onEffectUpdated(effect, reapplyEffect, source);
+         this.connection.send(new ClientboundUpdateMobEffectPacket(this.getId(), effect));
+-        CriteriaTriggers.EFFECTS_CHANGED.trigger(this, source);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.EFFECTS_CHANGED.trigger(this, source); // Kaiiju
+     }
+ 
+     @Override
+@@ -2411,7 +2411,7 @@ public class ServerPlayer extends Player {
+             this.levitationStartPos = null;
+         }
+ 
+-        CriteriaTriggers.EFFECTS_CHANGED.trigger(this, (Entity) null);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.EFFECTS_CHANGED.trigger(this, (Entity) null); // Kaiiju
+     }
+ 
+     @Override
+@@ -2964,7 +2964,7 @@ public class ServerPlayer extends Player {
+ 
+     @Override
+     protected void updateUsingItem(ItemStack stack) {
+-        CriteriaTriggers.USING_ITEM.trigger(this, stack);
++        if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.USING_ITEM.trigger(this, stack); // Kaiiju
+         super.updateUsingItem(stack);
+     }
+ 
+@@ -2993,7 +2993,7 @@ public class ServerPlayer extends Player {
+         Entity entity = item.getOwner();
+ 
+         if (entity != null) {
+-            CriteriaTriggers.THROWN_ITEM_PICKED_UP_BY_PLAYER.trigger(this, item.getItem(), entity);
++            if (!this.level().kaiijuConfig.disableAchievements) CriteriaTriggers.THROWN_ITEM_PICKED_UP_BY_PLAYER.trigger(this, item.getItem(), entity); // Kaiiju
+         }
+ 
+     }

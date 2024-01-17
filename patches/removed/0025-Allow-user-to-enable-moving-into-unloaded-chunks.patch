@@ -5,10 +5,10 @@ Subject: [PATCH] Allow user to enable moving into unloaded chunks
 
 
 diff --git a/src/main/java/io/papermc/paper/configuration/WorldConfiguration.java b/src/main/java/io/papermc/paper/configuration/WorldConfiguration.java
-index 1e3ae1cb466b4757ce7fc0bd0201190230756bcc..8cf64c784d1768275b94fd1e4125c7c8742b3d5d 100644
+index f1c4263e1c9ba532450c155acceeab4f663b13c4..a759ddbef0708b94a42d8496aecc165a8099c43a 100644
 --- a/src/main/java/io/papermc/paper/configuration/WorldConfiguration.java
 +++ b/src/main/java/io/papermc/paper/configuration/WorldConfiguration.java
-@@ -473,14 +473,14 @@ public class WorldConfiguration extends ConfigurationPart {
+@@ -472,14 +472,14 @@ public class WorldConfiguration extends ConfigurationPart {
          // Folia start - region threading - force prevent moving into unloaded chunks
          @PostProcess
          public void postProcess() {

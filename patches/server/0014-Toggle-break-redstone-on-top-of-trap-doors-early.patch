@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Sofiane H. Djerbi" <46628754+kugge@users.noreply.github.com>
+Date: Sun, 7 May 2023 20:04:06 +0300
+Subject: [PATCH] Toggle break redstone on top of trap doors early
+
+That patch break vanilla mechanics such as portal slicing.
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+index 6d7356cc07da58b1cef8d8963e790251d765de2c..507f131d03f592f77c9854ba96e8bea8733eb6d5 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuWorldConfig.java
+@@ -155,8 +155,10 @@ public class KaiijuWorldConfig {
+     }
+ 
+     public boolean fixVoidTrading = true;
++    public boolean breakRedstoneOnTopOfTrapDoorsEarly = true;
+ 
+     private void gameplaySettings() {
+         fixVoidTrading = getBoolean("gameplay.fix-void-trading", fixVoidTrading);
++        breakRedstoneOnTopOfTrapDoorsEarly = getBoolean("gameplay.break-redstone-on-top-of-trap-doors-early", breakRedstoneOnTopOfTrapDoorsEarly);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/world/level/block/TrapDoorBlock.java b/src/main/java/net/minecraft/world/level/block/TrapDoorBlock.java
+index ab5d25e2e1e86804c91885739c4f86770c40143c..40fd363377ee214289e25ec0197d472a8528033c 100644
+--- a/src/main/java/net/minecraft/world/level/block/TrapDoorBlock.java
++++ b/src/main/java/net/minecraft/world/level/block/TrapDoorBlock.java
+@@ -154,6 +154,7 @@ public class TrapDoorBlock extends HorizontalDirectionalBlock implements SimpleW
+                 }
+                 // CraftBukkit end
+                 boolean open = (Boolean) state.getValue(TrapDoorBlock.OPEN) != flag1; // Paper - break redstone on trapdoors early
++                if (world.kaiijuConfig.breakRedstoneOnTopOfTrapDoorsEarly) { // Kaiiju - trigger break redstone on trapdoors early
+                 // Paper start - break redstone on trapdoors early
+                 // note: this must run before any state for this block/its neighborus are written to the world
+                 // we allow the redstone event to fire so that plugins can block
+@@ -172,6 +173,7 @@ public class TrapDoorBlock extends HorizontalDirectionalBlock implements SimpleW
+                     }
+                 }
+                 // Paper end - break redstone on trapdoors early
++                } // Kaiiju  - trigger break redstone on trapdoors early
+                 if (open) { // Paper - break redstone on trapdoors early
+                     state = (BlockState) state.setValue(TrapDoorBlock.OPEN, flag1);
+                     this.playSound((Player) null, world, pos, flag1);

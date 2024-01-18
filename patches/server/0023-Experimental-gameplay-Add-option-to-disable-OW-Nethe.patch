@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 18 Jan 2024 13:34:38 +0100
+Subject: [PATCH] Experimental gameplay: Add option to disable OW/Nether 8:1
+ scaling.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 3d7f3ad7d67da8bd03cd65f5afa6c1f58bb4a608..035f2f2598c2d2a6dd5335e78175f7577f316f1e 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -225,4 +225,10 @@ public class KaiijuConfig {
+     private static void gameplaySettings() {
+         serverModName = getString("gameplay.server-mod-name", serverModName);
+     }
++
++    public static boolean disableOWNetherScale = false; // Changes 8:1 ratio between Nether and OW to 1:1
++
++    private static void highlyExperimentalSettingsDontEnable() {
++        disableOWNetherScale = getBoolean("highly-experimental-settings-dont-enable.disable-ow-nether-scale", disableOWNetherScale);
++    }
+ }
+diff --git a/src/main/java/net/minecraft/world/entity/Entity.java b/src/main/java/net/minecraft/world/entity/Entity.java
+index 0a060023da8c1ca1e4a0646e94170c8f489f48b1..8a166b8b747ca18902e247d07991d03347ad5aa4 100644
+--- a/src/main/java/net/minecraft/world/entity/Entity.java
++++ b/src/main/java/net/minecraft/world/entity/Entity.java
+@@ -4196,6 +4196,7 @@ public abstract class Entity implements Nameable, EntityAccess, CommandSource, S
+ 
+                 WorldBorder destinationBorder = destination.getWorldBorder();
+                 double dimensionScale = DimensionType.getTeleportationScale(origin.dimensionType(), destination.dimensionType());
++                if (dev.kaiijumc.kaiiju.KaiijuConfig.disableOWNetherScale) dimensionScale = 1; // Kaiiju
+                 BlockPos targetPos = destination.getWorldBorder().clampToBounds(this.getX() * dimensionScale, this.getY(), this.getZ() * dimensionScale);
+ 
+                 ca.spottedleaf.concurrentutil.completable.Completable<BlockUtil.FoundRectangle> portalFound

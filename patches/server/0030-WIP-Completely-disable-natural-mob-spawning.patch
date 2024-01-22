@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 22 Jan 2024 05:09:14 +0100
+Subject: [PATCH] WIP: Completely disable natural mob spawning.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 316bc7d43e091c4e18d07b076288b15762a20131..2a62afde8d83a176d263c2d8b5e413fe21da5471 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -252,6 +252,10 @@ public class KaiijuConfig {
+     // WIP - ClientboundLevelChunkWithLightPacket is slow by default, so let's multithread it up!
+     public static boolean multithreadChunkSending = false;
+ 
++    // WIP - disable natural mob spawning during runtime. Doesn't affect mob spawning during chunk generation.
++    // TODO: Check your 1.19.4 patch that optimizes it
++    public static boolean disableMobSpawningDuringRuntime = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -259,5 +263,6 @@ public class KaiijuConfig {
+         triggerNearbyPlayersTickOnlyWhenNecessary = getBoolean("optimizations-dirty-will-change-name.trigger-nearby-players-tick-only-when-necessary", triggerNearbyPlayersTickOnlyWhenNecessary);
+         dontLoadTransientEntitiesFromChunk = getBoolean("optimizations-dirty-will-change-name.dont-load-transient-entities-from-chunk", dontLoadTransientEntitiesFromChunk);
+         multithreadChunkSending = getBoolean("optimizations-dirty-will-change-name.multithread-chunk-sending", multithreadChunkSending);
++        disableMobSpawningDuringRuntime = getBoolean("optimizations-dirty-will-change-name.disable-mob-spawning-during-runtime", disableMobSpawningDuringRuntime);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/server/level/ServerChunkCache.java b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+index 88db5ada13329a5fe0d0fb652d2c8a8d561649e8..4e62fdb7aacabae7aff582b95f105cd085271359 100644
+--- a/src/main/java/net/minecraft/server/level/ServerChunkCache.java
++++ b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+@@ -486,7 +486,7 @@ public class ServerChunkCache extends ChunkSource {
+                 int k = this.distanceManager.getNaturalSpawnChunkCount();
+                 // Paper start - per player mob spawning
+                 int naturalSpawnChunkCount = k;
+-                NaturalSpawner.SpawnState spawnercreature_d; // moved down
++                NaturalSpawner.SpawnState spawnercreature_d = null; // moved down
+                 profiler.startTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.MOB_SPAWN_ENTITY_COUNT); try { // Folia - profiler
+                 if ((this.spawnFriendlies || this.spawnEnemies) && this.level.paperConfig().entities.spawning.perPlayerMobSpawns) { // don't count mobs when animals and monsters are disabled
+                     // re-set mob counts
+@@ -503,8 +503,10 @@ public class ServerChunkCache extends ChunkSource {
+                         }
+                         // Paper end - per player mob spawning backoff
+                     }
++                    if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableMobSpawningDuringRuntime) // Kaiiju
+                     spawnercreature_d = NaturalSpawner.createState(naturalSpawnChunkCount, regionizedWorldData.getLoadedEntities(), this::getFullChunk, null, true); // Folia - region threading - note: function only cares about loaded entities, doesn't need all
+                 } else {
++                    if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableMobSpawningDuringRuntime) // Kaiiju
+                     spawnercreature_d = NaturalSpawner.createState(naturalSpawnChunkCount, regionizedWorldData.getLoadedEntities(), this::getFullChunk, !this.level.paperConfig().entities.spawning.perPlayerMobSpawns ? new LocalMobCapCalculator(this.chunkMap) : null, false); // Folia - region threading - note: function only cares about loaded entities, doesn't need all
+                 }
+                 } finally { profiler.stopTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.MOB_SPAWN_ENTITY_COUNT); } // Folia - profiler
+@@ -606,6 +608,7 @@ public class ServerChunkCache extends ChunkSource {
+                         chunk1.incrementInhabitedTime(j);
+                         if (spawn && flag && (this.spawnEnemies || this.spawnFriendlies) && this.level.getWorldBorder().isWithinBounds(chunkcoordintpair)) { // Spigot // Paper - optimise chunk tick iteration
+                             ++spawnChunkCount; // Folia - profiler
++                            if (spawnercreature_d != null) // Kaiiju
+                             NaturalSpawner.spawnForChunk(this.level, chunk1, spawnercreature_d, this.spawnFriendlies, this.spawnEnemies, flag1);
+                         }
+ 

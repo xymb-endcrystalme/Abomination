@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 22 Jan 2024 01:24:42 +0100
+Subject: [PATCH] WIP: Folia entity tracker throttling.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 3a8240a8fe9c90ff3fd9bfdd8e341b178037960d..7b668b16afd12e10ff0e64b4a3303debf0413b3e 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -240,8 +240,12 @@ public class KaiijuConfig {
+     // WIP for development
+     public static boolean disableFluidTicking = false;
+ 
++    // WIP for development
++    public static boolean foliaEntityTrackerThrottling = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
++        foliaEntityTrackerThrottling = getBoolean("optimizations-dirty-will-change-name.folia-entity-tracker-throttling", foliaEntityTrackerThrottling);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/server/level/ChunkMap.java b/src/main/java/net/minecraft/server/level/ChunkMap.java
+index 377a89f7bfe4d26a40776f4c22211cc0d0fe4cfe..5f1862fa8e1557708e0b8a19f60a09cf4dbcebed 100644
+--- a/src/main/java/net/minecraft/server/level/ChunkMap.java
++++ b/src/main/java/net/minecraft/server/level/ChunkMap.java
+@@ -1095,8 +1095,13 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         entity.tracker = null; // Paper - We're no longer tracked
+     }
+ 
++    // Kaiiju start
++    int entityTrackerThrottling = 0;
++    // Kaiiju end
++
+     // Folia start - region threading - replace entity tracking ticking
+     private void foliaEntityTrackerTick() {
++        entityTrackerThrottling++; // Kaiiju
+         final ca.spottedleaf.leafprofiler.RegionizedProfiler.Handle profiler = io.papermc.paper.threadedregions.TickRegionScheduler.getProfiler(); // Folia - profiler
+         io.papermc.paper.threadedregions.RegionizedWorldData worldData = this.level.getCurrentWorldData();
+         io.papermc.paper.util.player.NearbyPlayers nearbyPlayers = worldData.getNearbyPlayers();
+@@ -1109,6 +1114,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+             if (tracker == null) {
+                 continue;
+             }
++            if (dev.kaiijumc.kaiiju.KaiijuConfig.foliaEntityTrackerThrottling && entityTrackerThrottling % 5 == 0) // Kaiiju
+             tracker.tick(nearbyPlayers.getChunk(entity.chunkPosition()));
+             tracker.serverEntity.sendChanges();
+         }

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 22 Jan 2024 01:58:17 +0100
+Subject: [PATCH] WIP: Trigger nearby players tick only when necessary.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 7b668b16afd12e10ff0e64b4a3303debf0413b3e..0f73e78d7633a2293ebc4ccc486e4dfda12f20c4 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -243,9 +243,13 @@ public class KaiijuConfig {
+     // WIP for development
+     public static boolean foliaEntityTrackerThrottling = false;
+ 
++    // WIP for development - like 16% of handleMovePlayer
++    public static boolean triggerNearbyPlayersTickOnlyWhenNecessary = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+         foliaEntityTrackerThrottling = getBoolean("optimizations-dirty-will-change-name.folia-entity-tracker-throttling", foliaEntityTrackerThrottling);
++        triggerNearbyPlayersTickOnlyWhenNecessary = getBoolean("optimizations-dirty-will-change-name.trigger-nearby-players-tick-only-when-necessary", triggerNearbyPlayersTickOnlyWhenNecessary);
+     }
+ }
+diff --git a/src/main/java/io/papermc/paper/util/player/SingleUserAreaMap.java b/src/main/java/io/papermc/paper/util/player/SingleUserAreaMap.java
+index d603887f4d0464f4463172fd79bcd5298d54983e..dff76557f1e25aa9ead26d90872b305a7d48d088 100644
+--- a/src/main/java/io/papermc/paper/util/player/SingleUserAreaMap.java
++++ b/src/main/java/io/papermc/paper/util/player/SingleUserAreaMap.java
+@@ -72,6 +72,10 @@ public abstract class SingleUserAreaMap<T> {
+         if (fromX == NOT_SET) {
+             return false;
+         }
++        // Kaiiju start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.triggerNearbyPlayersTickOnlyWhenNecessary &&
++            fromX == toX && fromZ == toZ && oldViewDistance == newViewDistance) return true;
++        // Kaiiju end
+ 
+         this.lastChunkX = toX;
+         this.lastChunkZ = toZ;

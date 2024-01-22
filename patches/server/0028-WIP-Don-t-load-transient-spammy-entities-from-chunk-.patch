@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 22 Jan 2024 02:55:00 +0100
+Subject: [PATCH] WIP: Don't load transient (spammy) entities from chunk files.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 0f73e78d7633a2293ebc4ccc486e4dfda12f20c4..752ca996d69da5d7f56e3ed30b54025107e32068 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -246,10 +246,14 @@ public class KaiijuConfig {
+     // WIP for development - like 16% of handleMovePlayer
+     public static boolean triggerNearbyPlayersTickOnlyWhenNecessary = false;
+ 
++    // Don't load transient entities from a saved chunk. Examples include bats, wither heads, snowballs or arrows.
++    public static boolean dontLoadTransientEntitiesFromChunk = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+         foliaEntityTrackerThrottling = getBoolean("optimizations-dirty-will-change-name.folia-entity-tracker-throttling", foliaEntityTrackerThrottling);
+         triggerNearbyPlayersTickOnlyWhenNecessary = getBoolean("optimizations-dirty-will-change-name.trigger-nearby-players-tick-only-when-necessary", triggerNearbyPlayersTickOnlyWhenNecessary);
++        dontLoadTransientEntitiesFromChunk = getBoolean("optimizations-dirty-will-change-name.dont-load-transient-entities-from-chunk", dontLoadTransientEntitiesFromChunk);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/world/level/chunk/storage/EntityStorage.java b/src/main/java/net/minecraft/world/level/chunk/storage/EntityStorage.java
+index 060e064625969610539dbf969ce773b877a7c579..b5252dfb4503812a6e038e3316a2d2841f617dcb 100644
+--- a/src/main/java/net/minecraft/world/level/chunk/storage/EntityStorage.java
++++ b/src/main/java/net/minecraft/world/level/chunk/storage/EntityStorage.java
+@@ -50,6 +50,18 @@ public class EntityStorage implements EntityPersistentStorage<Entity> {
+     public static List<Entity> readEntities(ServerLevel level, CompoundTag compoundTag) {
+         ListTag listTag = compoundTag.getList("Entities", 10);
+         List<Entity> list = EntityType.loadEntitiesRecursive(listTag, level).collect(ImmutableList.toImmutableList());
++        // Kaiiju start - remove unwanted entities
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.dontLoadTransientEntitiesFromChunk) {
++            List<Entity> newEntities = new java.util.ArrayList<Entity>(list.size());
++            for (Entity e: list) {
++                if (!(e instanceof net.minecraft.world.entity.ambient.Bat || e instanceof net.minecraft.world.entity.projectile.WitherSkull ||
++                    e instanceof net.minecraft.world.entity.projectile.Fireball || e instanceof net.minecraft.world.entity.projectile.AbstractArrow ||
++                    e instanceof net.minecraft.world.entity.projectile.Snowball)) newEntities.add(e);
++            }
++            list = newEntities;
++        }
++        // Kaiiju end
++
+         return list;
+     }
+     // Paper end - rewrite chunk system

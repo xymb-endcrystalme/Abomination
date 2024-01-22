@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 22 Jan 2024 05:17:02 +0100
+Subject: [PATCH] WIP: Disable chunk ticking completely.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 2a62afde8d83a176d263c2d8b5e413fe21da5471..3bc6c7889b8ed720fee0e7db73a9e03ed0697850 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -256,6 +256,9 @@ public class KaiijuConfig {
+     // TODO: Check your 1.19.4 patch that optimizes it
+     public static boolean disableMobSpawningDuringRuntime = false;
+ 
++    // WIP - disable chunk ticking completely. Disabling it disables snowing, thunder and random block ticks (ex. bamboo or grass growing).
++    public static boolean disableChunkTicking = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -264,5 +267,6 @@ public class KaiijuConfig {
+         dontLoadTransientEntitiesFromChunk = getBoolean("optimizations-dirty-will-change-name.dont-load-transient-entities-from-chunk", dontLoadTransientEntitiesFromChunk);
+         multithreadChunkSending = getBoolean("optimizations-dirty-will-change-name.multithread-chunk-sending", multithreadChunkSending);
+         disableMobSpawningDuringRuntime = getBoolean("optimizations-dirty-will-change-name.disable-mob-spawning-during-runtime", disableMobSpawningDuringRuntime);
++        disableChunkTicking = getBoolean("optimizations-dirty-will-change-name.disable-chunk-ticking", disableChunkTicking);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index 2e935bade4c87bf67c92692df196e0126ec87358..aa750d30e48e61ae977e80120b39733d1d007b15 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -1131,6 +1131,7 @@ public class ServerLevel extends Level implements WorldGenLevel {
+     // Paper end
+ 
+     public void tickChunk(LevelChunk chunk, int randomTickSpeed) {
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.disableChunkTicking) return; // Kaiiju
+         io.papermc.paper.util.math.ThreadUnsafeRandom randomTickRandom = this.randomTickRandom.get(); // Folia - region threading
+         ChunkPos chunkcoordintpair = chunk.getPos();
+         boolean flag = this.isRaining();

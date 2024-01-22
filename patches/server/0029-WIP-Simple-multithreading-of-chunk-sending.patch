@@ -1,0 +1,231 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 22 Jan 2024 03:39:04 +0100
+Subject: [PATCH] WIP: Simple multithreading of chunk sending.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 752ca996d69da5d7f56e3ed30b54025107e32068..316bc7d43e091c4e18d07b076288b15762a20131 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -249,11 +249,15 @@ public class KaiijuConfig {
+     // Don't load transient entities from a saved chunk. Examples include bats, wither heads, snowballs or arrows.
+     public static boolean dontLoadTransientEntitiesFromChunk = false;
+ 
++    // WIP - ClientboundLevelChunkWithLightPacket is slow by default, so let's multithread it up!
++    public static boolean multithreadChunkSending = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+         foliaEntityTrackerThrottling = getBoolean("optimizations-dirty-will-change-name.folia-entity-tracker-throttling", foliaEntityTrackerThrottling);
+         triggerNearbyPlayersTickOnlyWhenNecessary = getBoolean("optimizations-dirty-will-change-name.trigger-nearby-players-tick-only-when-necessary", triggerNearbyPlayersTickOnlyWhenNecessary);
+         dontLoadTransientEntitiesFromChunk = getBoolean("optimizations-dirty-will-change-name.dont-load-transient-entities-from-chunk", dontLoadTransientEntitiesFromChunk);
++        multithreadChunkSending = getBoolean("optimizations-dirty-will-change-name.multithread-chunk-sending", multithreadChunkSending);
+     }
+ }
+diff --git a/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java b/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java
+index 07abf5a326cc7aa8a449b74bd7ac8a43b98528c0..916ff167cce1df91d32e97f48aa61f48e091ce59 100644
+--- a/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java
++++ b/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java
+@@ -233,6 +233,7 @@ public class RegionizedPlayerChunkLoader {
+ 
+     public void tick() {
+         TickThread.ensureTickThread("Cannot tick player chunk loader async");
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadChunkSending) xymb.MultiThreader.sendChunkFinish(); // Kaiiju
+         long currTime = System.nanoTime();
+         for (final ServerPlayer player : new java.util.ArrayList<>(this.world.getLocalPlayers())) { // Folia - region threding
+             final PlayerChunkLoaderData loader = player.chunkLoader;
+diff --git a/src/main/java/net/minecraft/server/network/PlayerChunkSender.java b/src/main/java/net/minecraft/server/network/PlayerChunkSender.java
+index cfeb85b89a7f3dbc856fe7ebdf0bd6a9f3761f1c..de48632900f7ec046a9ea353bb399db280ca200f 100644
+--- a/src/main/java/net/minecraft/server/network/PlayerChunkSender.java
++++ b/src/main/java/net/minecraft/server/network/PlayerChunkSender.java
+@@ -92,6 +92,13 @@ public class PlayerChunkSender {
+         handler.player.serverLevel().chunkSource.chunkMap.getVisibleChunkIfPresent(chunk.getPos().toLong()).addPlayer(handler.player);
+         // Paper start - Anti-Xray
+         final boolean shouldModify = world.chunkPacketBlockController.shouldModify(handler.player, chunk);
++        // Kaiiju start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadChunkSending) {
++            xymb.MultiThreader.sendChunkExecute(() -> {
++            handler.send(new ClientboundLevelChunkWithLightPacket(chunk, world.getLightEngine(), (BitSet)null, (BitSet)null, shouldModify));
++            });
++        } else
++        // Kaiiju end
+         handler.send(new ClientboundLevelChunkWithLightPacket(chunk, world.getLightEngine(), (BitSet)null, (BitSet)null, shouldModify));
+         // Paper end - Anti-Xray
+         // Paper start - PlayerChunkLoadEvent
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..d62dc495888e4eb7962cc1797f06ab8a03eef1b6
+--- /dev/null
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -0,0 +1,168 @@
++package xymb;
++
++import com.google.common.util.concurrent.ThreadFactoryBuilder;
++import java.util.concurrent.Executor;
++import java.util.concurrent.Executors;
++import java.util.concurrent.ConcurrentLinkedQueue;
++import java.util.concurrent.atomic.AtomicInteger;
++
++public class MultiThreader {
++
++    private static final int parallelism = 8;
++    /*
++    private static final Executor executor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreader-%d")
++            .setPriority(Thread.NORM_PRIORITY - 1)
++            .build());
++    private static final Executor lowPriorityExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderLow-%d")
++            .setPriority(Thread.NORM_PRIORITY - 2)
++            .build());
++    private static final Executor chunkMapExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderHigh-%d")
++            .setPriority(Thread.NORM_PRIORITY)
++            .build());
++    private static AtomicInteger chunkMapTasksRemaining = new AtomicInteger(0);
++
++    private static final Executor broadcastChangesExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderHigh-%d")
++            .setPriority(Thread.NORM_PRIORITY)
++            .build());
++    private static AtomicInteger broadcastChangesTasksRemaining = new AtomicInteger(0);
++
++    private static final Executor activateEntitiesExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-activateEntities-%d")
++            .setPriority(Thread.NORM_PRIORITY)
++            .build());
++    private static AtomicInteger activateEntitiesTasksRemaining = new AtomicInteger(0);
++
++    private static final Executor entityExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-entity-%d")
++            .setPriority(Thread.NORM_PRIORITY)
++            .build());
++    private static AtomicInteger entityTasksRemaining = new AtomicInteger(0);
++
++    private static final Executor broadcastExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderLow-%d")
++            .setPriority(Thread.NORM_PRIORITY - 2)
++            .build());
++*/
++    private static final Executor sendChunkExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderHigh-%d")
++            .setPriority(Thread.NORM_PRIORITY + 1)
++            .build());
++    private static AtomicInteger sendChunkRemaining = new AtomicInteger(0);
++
++    public static void sendChunkExecute(final Runnable runnable) {
++        sendChunkRemaining.incrementAndGet();
++        sendChunkExecutor.execute(() -> {
++            runnable.run();
++            sendChunkRemaining.decrementAndGet();
++        });
++    }
++
++    public static void sendChunkFinish() {
++        while (sendChunkRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
++
++/*
++    public static void variousThingsExecute(final Runnable runnable) {
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.asyncVariousPacketThings) lowPriorityExecutor.execute(runnable);
++        else runnable.run();
++    }
++
++    public static void chunkMapExecute(final Runnable runnable) {
++        if (false) {
++            runnable.run();
++            return;
++        }
++        chunkMapTasksRemaining.incrementAndGet();
++        chunkMapExecutor.execute(() -> {
++            runnable.run();
++            chunkMapTasksRemaining.decrementAndGet();
++        });
++    }
++
++    public static void chunkMapFinish() {
++        while (chunkMapTasksRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++
++    }
++
++    public static void broadcastChanges(final Runnable runnable) {
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.multithreadBroadcastChanges) {
++            runnable.run();
++            return;
++        }
++        broadcastChangesTasksRemaining.incrementAndGet();
++        broadcastChangesExecutor.execute(() -> {
++            runnable.run();
++            broadcastChangesTasksRemaining.decrementAndGet();
++        });
++    }
++
++    public static void broadcastChangesFinish() {
++        while (broadcastChangesTasksRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
++
++    public static void activateEntities(final Runnable runnable) {
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.multithreadActivateEntities) {
++            runnable.run();
++            return;
++        }
++        activateEntitiesTasksRemaining.incrementAndGet();
++        activateEntitiesExecutor.execute(() -> {
++            runnable.run();
++            activateEntitiesTasksRemaining.decrementAndGet();
++        });
++    }
++
++    public static void activateEntitiesFinish() {
++        while (activateEntitiesTasksRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
++
++    public static void entity(final Runnable runnable) {
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.multithreadEntities) {
++            runnable.run();
++            return;
++        }
++        entityTasksRemaining.incrementAndGet();
++        entityExecutor.execute(() -> {
++            runnable.run();
++            entityTasksRemaining.decrementAndGet();
++        });
++    }
++
++    public static void entityFinish() {
++        while (entityTasksRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
++
++    public static void broadcastPacket(final Runnable runnable) {
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.multithreadBroadcastPacket) {
++            runnable.run();
++            return;
++        }
++        broadcastExecutor.execute(() -> {
++            runnable.run();
++        });
++    }
++
++    public static void sendKeepalive(final Runnable runnable) {
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.multithreadKeepalivePacket) {
++            runnable.run();
++            return;
++        }
++        broadcastExecutor.execute(() -> {
++            runnable.run();
++        });
++    }*/
++}
+\ No newline at end of file

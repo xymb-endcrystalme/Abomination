@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sat, 20 Jan 2024 16:54:53 +0100
+Subject: [PATCH] Optimization: Throttle leaves ticking.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 035f2f2598c2d2a6dd5335e78175f7577f316f1e..3ce098436d01146316bd76c76fa9d5e6b3d6f819 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -231,4 +231,13 @@ public class KaiijuConfig {
+     private static void highlyExperimentalSettingsDontEnable() {
+         disableOWNetherScale = getBoolean("highly-experimental-settings-dont-enable.disable-ow-nether-scale", disableOWNetherScale);
+     }
++
++    // Waits for random time of 60s before enabling leaves ticking
++    // Afterwards slows down leaves ticking by 3x
++    // About 8.3% of tick time with 100 bots on a pregenerated world
++    public static boolean throttleLeavesTicking = false;
++
++    private static void optimizationsDirtyWillChangeName() {
++        throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
++    }
+ }
+diff --git a/src/main/java/net/minecraft/world/level/block/LeavesBlock.java b/src/main/java/net/minecraft/world/level/block/LeavesBlock.java
+index 415db10a16759ae93bb6302d5d5be4a6dcebe16a..a202fc654e11db89e52ae2413b51ce914ab6d99a 100644
+--- a/src/main/java/net/minecraft/world/level/block/LeavesBlock.java
++++ b/src/main/java/net/minecraft/world/level/block/LeavesBlock.java
+@@ -76,8 +76,21 @@ public class LeavesBlock extends Block implements SimpleWaterloggedBlock {
+         return !(Boolean) state.getValue(LeavesBlock.PERSISTENT) && (Integer) state.getValue(LeavesBlock.DISTANCE) == 7;
+     }
+ 
++    // Kaiiju start
++    int leavesThrottling = -1;
++    // Kaiiju end
++
+     @Override
+     public void tick(BlockState state, ServerLevel world, BlockPos pos, RandomSource random) {
++        // Kaiiju start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.throttleLeavesTicking) {
++            if (leavesThrottling == -1) leavesThrottling = random.nextInt(20 * 60) + 1;
++            leavesThrottling -= 1;
++            if (leavesThrottling >= 0) return;
++            else leavesThrottling = 3;
++        }
++        // Kaiiju end
++
+         world.setBlock(pos, LeavesBlock.updateDistance(state, world, pos), 3);
+     }
+ 

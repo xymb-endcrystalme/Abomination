@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sun, 28 Jan 2024 14:11:33 +0100
+Subject: [PATCH] Optimization: Don't compare ItemStack NBT's when you don't
+ have to.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 01ad45888e49b138434f0cda022e3503d12642b3..296089ce92834a22e78a5df65908da397266284b 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -310,6 +310,9 @@ public class KaiijuConfig {
+     // Throttle mob despawns to once every 10 ticks
+     public static boolean throttleMobDespawns = false;
+ 
++    // Fast matching for ItemStacks. Pretty important for anarchies.
++    public static boolean shulkerBoxFastMatch = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -327,6 +330,7 @@ public class KaiijuConfig {
+         disableDebugInformationForPacketProcessing = getBoolean("optimizations-dirty-will-change-name.disable-debug-information-for-packet-processing", disableDebugInformationForPacketProcessing);
+         throttleEntityActivation = getBoolean("optimizations-dirty-will-change-name.throttle-entity-activation", throttleEntityActivation);
+         throttleMobDespawns = getBoolean("optimizations-dirty-will-change-name.throttle-mob-despawns", throttleMobDespawns);
++        shulkerBoxFastMatch = getBoolean("optimizations-dirty-will-change-name.shulker-box-fast-match", shulkerBoxFastMatch);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/net/minecraft/world/item/ItemStack.java b/src/main/java/net/minecraft/world/item/ItemStack.java
+index 4c6420d870c62a8d684d6f331d63fc73c7874af2..c6a042bd16fb08ec1b37a8d03606877fa58509b9 100644
+--- a/src/main/java/net/minecraft/world/item/ItemStack.java
++++ b/src/main/java/net/minecraft/world/item/ItemStack.java
+@@ -784,6 +784,16 @@ public final class ItemStack {
+     }
+ 
+     public static boolean matches(ItemStack left, ItemStack right) {
++        // Abomination start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.shulkerBoxFastMatch && !left.isEmpty() && !right.isEmpty()) {
++            if (left.getItem() != right.getItem()) return false;
++            if(left.getItem() instanceof BlockItem && right.getItem() instanceof BlockItem) {
++                if(((BlockItem)left.getItem()).getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock && ((BlockItem)right.getItem()).getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
++                    return true; // Fast skip for shulkers, don't even bother with NBT tags
++                }
++            }
++        }
++        // Abomination end
+         return left == right ? true : (left.getCount() != right.getCount() ? false : ItemStack.isSameItemSameTags(left, right));
+     }
+ 

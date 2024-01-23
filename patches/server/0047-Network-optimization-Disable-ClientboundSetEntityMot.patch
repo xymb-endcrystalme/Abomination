@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sun, 28 Jan 2024 04:07:55 +0100
+Subject: [PATCH] Network optimization: Disable ClientboundSetEntityMotion
+ packet.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 89c5d4388e6f10334450f419fc2e2fcf62d55b71..4ea8aa1b34169a81e8edfa7dbc1e7b1d6a22f5ef 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -206,8 +206,12 @@ public class KaiijuConfig {
+     
+     public static boolean sendNullEntityPackets = true;
+ 
++    // This packet seems to be not used for anything in the client. At least my players haven't complained for a year.
++    public static boolean disableEntityMotionPacket = false;
++
+     private static void networkSettings() {
+         sendNullEntityPackets = getBoolean("network.send-null-entity-packets", sendNullEntityPackets);
++        disableEntityMotionPacket = getBoolean("network-settings.disable-entity-motion-packet", disableEntityMotionPacket);
+     }
+ 
+     public static boolean disableVanishApi = false;
+diff --git a/src/main/java/net/minecraft/server/level/ServerEntity.java b/src/main/java/net/minecraft/server/level/ServerEntity.java
+index b3f144a0d0d436d3610f3069eed02c5ed5fd43e2..80c9919c36c815c77c2daf8ec721e35f45b7ca5f 100644
+--- a/src/main/java/net/minecraft/server/level/ServerEntity.java
++++ b/src/main/java/net/minecraft/server/level/ServerEntity.java
+@@ -205,6 +205,7 @@ public class ServerEntity {
+                     // Kaiiju end
+                 }
+ 
++                if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableEntityMotionPacket) // Abomination
+                 if ((this.trackDelta || this.entity.hasImpulse || this.entity instanceof LivingEntity && ((LivingEntity) this.entity).isFallFlying()) && this.tickCount > 0) {
+                     Vec3 vec3d1 = this.entity.getDeltaMovement();
+                     double d0 = vec3d1.distanceToSqr(this.ap);

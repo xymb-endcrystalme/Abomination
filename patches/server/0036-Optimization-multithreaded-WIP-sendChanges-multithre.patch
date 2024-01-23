@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 00:50:40 +0100
+Subject: [PATCH] Optimization multithreaded: WIP sendChanges multithreading.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index ae94a3c070eace0cdb27036bf7c0b99dc44a056f..9acad95001da85953fae1d3fc15ac1445199cd91 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -271,6 +271,9 @@ public class KaiijuConfig {
+     // WIP - multithread serverbound packets
+     public static boolean multithreadServerboundPackets = false;
+ 
++    // WIP - multithread sendChanges
++    public static boolean multithreadSendChanges = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -283,5 +286,6 @@ public class KaiijuConfig {
+         multithreadSomeEntities = getBoolean("optimizations-dirty-will-change-name.multithread-some-entities", multithreadSomeEntities);
+         disableVibrations = getBoolean("optimizations-dirty-will-change-name.disable-vibrations", disableVibrations);
+         multithreadServerboundPackets = getBoolean("optimizations-dirty-will-change-name.multithread-serverbound-packets", multithreadServerboundPackets);
++        multithreadSendChanges = getBoolean("optimizations-dirty-will-change-name.multithread-send-changes", multithreadSendChanges);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/server/level/ChunkMap.java b/src/main/java/net/minecraft/server/level/ChunkMap.java
+index b88148a41a8797176ef512fe24cc8d2df03adb93..57891b3989299f3bed8e09ac54db008ac78a4247 100644
+--- a/src/main/java/net/minecraft/server/level/ChunkMap.java
++++ b/src/main/java/net/minecraft/server/level/ChunkMap.java
+@@ -1108,6 +1108,37 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         long totalEntities = 0L; // Folia - profiler
+         long totalUnloadedEntities = 0L; // Folia - profiler
+         profiler.startTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.ENTITY_TRACKER_TICK); try { // Folia - profiler
++        // Abomination start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSendChanges) {
++            java.util.concurrent.atomic.AtomicInteger totalEntitiesAtomic = new java.util.concurrent.atomic.AtomicInteger();
++            final Thread currThread = Thread.currentThread();
++            if (!(currThread instanceof io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner tickThreadRunner)) throw new RuntimeException("Wrong thread for entity ticking!!!");
++            final io.papermc.paper.threadedregions.RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
++            final io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<io.papermc.paper.threadedregions.TickRegions.TickRegionData, io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData> currentRegion = io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegion();
++            final long totalThreads = 8;
++            for (int _threadNo = 0 ; _threadNo < totalThreads ; _threadNo++) {
++                final int threadNo = _threadNo;
++                xymb.MultiThreader.sendChangesExecute(() -> {
++                    io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
++                    io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
++                    com.destroystokyo.paper.util.maplist.ReferenceList<Entity> loadedEntities = (com.destroystokyo.paper.util.maplist.ReferenceList<Entity>) worldData.getLoadedEntities();
++                    totalEntitiesAtomic.set(loadedEntities.size());
++                    for (int i = threadNo ; i < loadedEntities.size() ; i += totalThreads) {
++                        Entity entity = loadedEntities.getUnchecked(i);
++                        TrackedEntity tracker = entity.tracker;
++                        if (tracker == null) {
++                            continue;
++                        }
++                        if (dev.kaiijumc.kaiiju.KaiijuConfig.foliaEntityTrackerThrottling && entityTrackerThrottling % 5 == 0) // Kaiiju
++                        tracker.tick(nearbyPlayers.getChunk(entity.chunkPosition()));
++                        tracker.serverEntity.sendChanges();
++                    }
++                });
++            }
++            xymb.MultiThreader.sendChangesFinish();
++            totalEntities = totalEntitiesAtomic.get();
++        } else {
++        // Abomination end
+         for (Entity entity : worldData.getLoadedEntities()) {
+             ++totalEntities; // Folia - profiler
+             TrackedEntity tracker = entity.tracker;
+@@ -1118,6 +1149,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+             tracker.tick(nearbyPlayers.getChunk(entity.chunkPosition()));
+             tracker.serverEntity.sendChanges();
+         }
++        } // Abomination
+         // process unloads
+         for (Entity entity : worldData.takeTrackingUnloads()) {
+             ++totalUnloadedEntities; // Folia - profiler
+@@ -1397,8 +1429,8 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+         }
+         // Folia end - region threading
+ 
+-        public void updatePlayer(ServerPlayer player) {
+-            org.spigotmc.AsyncCatcher.catchOp("player tracker update"); // Spigot
++        public synchronized void updatePlayer(ServerPlayer player) { // Abomination
++            //org.spigotmc.AsyncCatcher.catchOp("player tracker update"); // Spigot // Abomination
+             if (player != this.entity) {
+                 Vec3 vec3d = player.position().subtract(this.entity.position());
+                 int i = ChunkMap.this.getPlayerViewDistance(player);
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 86a71e6a2e029893cf77981f42262acc7d14a504..394bb7f55524cd1cc01f8fc32fd53e1ec03d4eac 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -102,6 +102,33 @@ private static final Executor entityTickExecutor = Executors.newFixedThreadPool(
+         }
+     }
+ 
++private static final Executor sendChangesExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
++    private final AtomicInteger threadNumber = new AtomicInteger(1);
++
++    @Override
++    public Thread newThread(Runnable r) {
++//        Thread thread = new TickThread(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
++        Thread thread = new TickThreadRunner(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
++        thread.setPriority(Thread.NORM_PRIORITY + 1);
++        return thread;
++    }
++});
++    private static AtomicInteger sendChangesRemaining = new AtomicInteger(0);
++
++    public static void sendChangesExecute(final Runnable runnable) {
++        sendChangesRemaining.incrementAndGet();
++        sendChangesExecutor.execute(() -> {
++            runnable.run();
++            sendChangesRemaining.decrementAndGet();
++        });
++    }
++
++    public static void sendChangesFinish() {
++        while (sendChangesRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
++
+ /*
+     public static void variousThingsExecute(final Runnable runnable) {
+         if (dev.kaiijumc.kaiiju.KaiijuConfig.asyncVariousPacketThings) lowPriorityExecutor.execute(runnable);

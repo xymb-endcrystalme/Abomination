@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Wed, 24 Jan 2024 05:26:41 +0100
+Subject: [PATCH] VERY WIP TODO: Multithread serverbound packets. Because why
+ the hell not.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index c50dbf68a81bf68de5c889b9fc436dd8a30b486c..ae94a3c070eace0cdb27036bf7c0b99dc44a056f 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -268,6 +268,9 @@ public class KaiijuConfig {
+     // WIP - disable vibrations (used by sculk sensors). For now required for multithreading not to crash.
+     public static boolean disableVibrations = false;
+ 
++    // WIP - multithread serverbound packets
++    public static boolean multithreadServerboundPackets = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -279,5 +282,6 @@ public class KaiijuConfig {
+         disableChunkTicking = getBoolean("optimizations-dirty-will-change-name.disable-chunk-ticking", disableChunkTicking);
+         multithreadSomeEntities = getBoolean("optimizations-dirty-will-change-name.multithread-some-entities", multithreadSomeEntities);
+         disableVibrations = getBoolean("optimizations-dirty-will-change-name.disable-vibrations", disableVibrations);
++        multithreadServerboundPackets = getBoolean("optimizations-dirty-will-change-name.multithread-serverbound-packets", multithreadServerboundPackets);
+     }
+ }
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 2694178e41c39d2fb233a9bcc10bc277fc251242..86a71e6a2e029893cf77981f42262acc7d14a504 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -200,4 +200,25 @@ private static final Executor entityTickExecutor = Executors.newFixedThreadPool(
+             runnable.run();
+         });
+     }*/
++
++    private static final Executor serverboundExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderHigh-%d")
++            .setPriority(Thread.NORM_PRIORITY + 1)
++            .build());
++    private static AtomicInteger serverboundRemaining = new AtomicInteger(0);
++
++    public static void serverboundExecute(final Runnable runnable) {
++        serverboundRemaining.incrementAndGet();
++        serverboundExecutor.execute(() -> {
++            runnable.run();
++            serverboundRemaining.decrementAndGet();
++        });
++    }
++
++    public static void serverboundFinish() {
++        while (serverboundRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
++
+ }
+\ No newline at end of file

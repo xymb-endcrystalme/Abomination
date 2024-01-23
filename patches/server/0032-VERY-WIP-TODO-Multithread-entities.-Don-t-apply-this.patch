@@ -1,0 +1,533 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Tue, 23 Jan 2024 01:47:32 +0100
+Subject: [PATCH] VERY WIP TODO: Multithread entities. Don't apply this patch,
+ highly experimental and unstable. Also disables vibrations, it's a
+ prerequisite.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 3bc6c7889b8ed720fee0e7db73a9e03ed0697850..c50dbf68a81bf68de5c889b9fc436dd8a30b486c 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -259,6 +259,15 @@ public class KaiijuConfig {
+     // WIP - disable chunk ticking completely. Disabling it disables snowing, thunder and random block ticks (ex. bamboo or grass growing).
+     public static boolean disableChunkTicking = false;
+ 
++    // WIP - multithread some entities
++    // TODO - test with all redstone engines
++    // TODO - make sure you never tick two entities closer than like 16 blocks away at the same time
++    // Abomination - entity multithreading synchronized
++    public static boolean multithreadSomeEntities = false;
++
++    // WIP - disable vibrations (used by sculk sensors). For now required for multithreading not to crash.
++    public static boolean disableVibrations = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -268,5 +277,7 @@ public class KaiijuConfig {
+         multithreadChunkSending = getBoolean("optimizations-dirty-will-change-name.multithread-chunk-sending", multithreadChunkSending);
+         disableMobSpawningDuringRuntime = getBoolean("optimizations-dirty-will-change-name.disable-mob-spawning-during-runtime", disableMobSpawningDuringRuntime);
+         disableChunkTicking = getBoolean("optimizations-dirty-will-change-name.disable-chunk-ticking", disableChunkTicking);
++        multithreadSomeEntities = getBoolean("optimizations-dirty-will-change-name.multithread-some-entities", multithreadSomeEntities);
++        disableVibrations = getBoolean("optimizations-dirty-will-change-name.disable-vibrations", disableVibrations);
+     }
+ }
+diff --git a/src/main/java/io/papermc/paper/chunk/system/entity/EntityLookup.java b/src/main/java/io/papermc/paper/chunk/system/entity/EntityLookup.java
+index 5bef4f50082e56b89239cfd62dd7429926b71c09..8281be45cb27aa1a709c45da605464530cfb70ce 100644
+--- a/src/main/java/io/papermc/paper/chunk/system/entity/EntityLookup.java
++++ b/src/main/java/io/papermc/paper/chunk/system/entity/EntityLookup.java
+@@ -246,9 +246,10 @@ public final class EntityLookup implements LevelEntityGetter<Entity> {
+         }
+     }
+ 
+-    public void entityStatusChange(final Entity entity, final ChunkEntitySlices slices, final Visibility oldVisibility, final Visibility newVisibility, final boolean moved,
++    synchronized public void entityStatusChange(final Entity entity, final ChunkEntitySlices slices, final Visibility oldVisibility, final Visibility newVisibility, final boolean moved,
+                                    final boolean created, final boolean destroyed) {
+-        TickThread.ensureTickThread(entity, "Entity status change must only happen on the main thread");
++        // THREAD CHECK
++//        TickThread.ensureTickThread(entity, "Entity status change must only happen on the main thread");
+ 
+         if (entity.updatingSectionStatus) {
+             // recursive status update
+@@ -392,12 +393,13 @@ public final class EntityLookup implements LevelEntityGetter<Entity> {
+         return Visibility.fromFullChunkStatus(entityStatus == null ? FullChunkStatus.INACCESSIBLE : entityStatus);
+     }
+ 
+-    private boolean addEntity(final Entity entity, final boolean fromDisk) {
++    synchronized private boolean addEntity(final Entity entity, final boolean fromDisk) {
+         final BlockPos pos = entity.blockPosition();
+         final int sectionX = pos.getX() >> 4;
+         final int sectionY = Mth.clamp(pos.getY() >> 4, this.minSection, this.maxSection);
+         final int sectionZ = pos.getZ() >> 4;
+-        TickThread.ensureTickThread(this.world, sectionX, sectionZ, "Cannot add entity off-main thread");
++        // THREAD CHECK
++//        TickThread.ensureTickThread(this.world, sectionX, sectionZ, "Cannot add entity off-main thread");
+ 
+         if (entity.isRemoved()) {
+             LOGGER.warn("Refusing to add removed entity: " + entity);
+@@ -474,11 +476,12 @@ public final class EntityLookup implements LevelEntityGetter<Entity> {
+     }
+     // Folia end - region threading
+ 
+-    private void removeEntity(final Entity entity) {
++    synchronized private void removeEntity(final Entity entity) {
+         final int sectionX = entity.sectionX;
+         final int sectionY = entity.sectionY;
+         final int sectionZ = entity.sectionZ;
+-        TickThread.ensureTickThread(this.world, sectionX, sectionZ, "Cannot remove entity off-main");
++        // THREAD CHECK
++//        TickThread.ensureTickThread(this.world, sectionX, sectionZ, "Cannot remove entity off-main");
+         if (!entity.isRemoved()) {
+             throw new IllegalStateException("Only call Entity#setRemoved to remove an entity");
+         }
+@@ -509,9 +512,10 @@ public final class EntityLookup implements LevelEntityGetter<Entity> {
+         }
+     }
+ 
+-    private ChunkEntitySlices moveEntity(final Entity entity) {
++    synchronized private ChunkEntitySlices moveEntity(final Entity entity) {
+         // ensure we own the entity
+-        TickThread.ensureTickThread(entity, "Cannot move entity off-main");
++        // THREAD CHECK
++        //TickThread.ensureTickThread(entity, "Cannot move entity off-main");
+ 
+         final BlockPos newPos = entity.blockPosition();
+         final int newSectionX = newPos.getX() >> 4;
+@@ -523,10 +527,12 @@ public final class EntityLookup implements LevelEntityGetter<Entity> {
+         }
+ 
+         // ensure the new section is owned by this tick thread
+-        TickThread.ensureTickThread(this.world, newSectionX, newSectionZ, "Cannot move entity off-main");
++        // THREAD CHECK
++//        TickThread.ensureTickThread(this.world, newSectionX, newSectionZ, "Cannot move entity off-main");
+ 
+         // ensure the old section is owned by this tick thread
+-        TickThread.ensureTickThread(this.world, entity.sectionX, entity.sectionZ, "Cannot move entity off-main");
++        // THREAD CHECK
++//        TickThread.ensureTickThread(this.world, entity.sectionX, entity.sectionZ, "Cannot move entity off-main");
+ 
+         final ChunkEntitySlices old = this.getChunk(entity.sectionX, entity.sectionZ);
+         final ChunkEntitySlices slices = this.getOrCreateChunk(newSectionX, newSectionZ);
+@@ -906,9 +912,10 @@ public final class EntityLookup implements LevelEntityGetter<Entity> {
+         }
+ 
+         @Override
+-        public void onRemove(final Entity.RemovalReason reason) {
++        synchronized public void onRemove(final Entity.RemovalReason reason) {
+             final Entity entity = this.entity;
+-            TickThread.ensureTickThread(entity, "Cannot remove entity off-main"); // Paper - rewrite chunk system
++            // THREAD CHECK
++//            TickThread.ensureTickThread(entity, "Cannot remove entity off-main"); // Paper - rewrite chunk system
+             final Visibility tickingState = EntityLookup.getEntityStatus(entity);
+ 
+             EntityLookup.this.removeEntity(entity);
+diff --git a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+index e895fad608e3a166cf9c800f16edb59bf9a42947..5280f21618509a707de52cab2d5f99c64b34cebf 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
++++ b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+@@ -599,9 +599,10 @@ public final class RegionizedWorldData {
+         return this.entityTickList.contains(entity);
+     }
+ 
+-    public void removeEntityTickingEntity(final Entity entity) {
++    synchronized public void removeEntityTickingEntity(final Entity entity) {
+         if (!TickThread.isTickThreadFor(entity)) {
+-            throw new IllegalArgumentException("Entity " + entity + " is not under this region's control");
++            // THREAD CHECK
++//            throw new IllegalArgumentException("Entity " + entity + " is not under this region's control");
+         }
+         this.entityTickList.remove(entity);
+         TickRegions.RegionStats.updateCurrentRegion();
+@@ -616,11 +617,13 @@ public final class RegionizedWorldData {
+         } finally {
+             iterator.finishedIterating();
+         }
++        xymb.MultiThreader.entityTickFinish();
+     }
+ 
+-    public void addEntity(final Entity entity) {
++    synchronized public void addEntity(final Entity entity) {
+         if (!TickThread.isTickThreadFor(this.world, entity.chunkPosition())) {
+-            throw new IllegalArgumentException("Entity " + entity + " is not under this region's control");
++            // THREAD CHECK
++//            throw new IllegalArgumentException("Entity " + entity + " is not under this region's control");
+         }
+         if (this.allEntities.add(entity)) {
+             if (entity instanceof ServerPlayer player) {
+diff --git a/src/main/java/io/papermc/paper/threadedregions/TickRegionScheduler.java b/src/main/java/io/papermc/paper/threadedregions/TickRegionScheduler.java
+index 865044d40a95d201765435cbc14b0384980eebf6..fa1dd6a6fd7808c1a7ce738108970f1d2535a18c 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/TickRegionScheduler.java
++++ b/src/main/java/io/papermc/paper/threadedregions/TickRegionScheduler.java
+@@ -102,6 +102,16 @@ public final class TickRegionScheduler {
+         return tickThreadRunner.currentTickingRegion;
+     }
+ 
++    // Kaiiju start
++    public static void setCurrentRegion(ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> set) {
++        final Thread currThread = Thread.currentThread();
++        if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
++            throw new RuntimeException("You're setting it wrong 2!");
++        }
++        tickThreadRunner.currentTickingRegion = set;
++    }
++    // Kaiiju end
++
+     /**
+      * Returns the current ticking region's world regionised data, or {@code null} if there is no ticking region.
+      * This is a faster alternative to calling the {@link RegionizedData#get()} method.
+@@ -115,6 +125,16 @@ public final class TickRegionScheduler {
+         return tickThreadRunner.currentTickingWorldRegionizedData;
+     }
+ 
++    // Kaiiju start
++    public static void setCurrentRegionizedWorldData(RegionizedWorldData set) {
++        final Thread currThread = Thread.currentThread();
++        if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
++            throw new RuntimeException("You're setting it wrong!");
++        }
++        tickThreadRunner.currentTickingWorldRegionizedData = set;
++    }
++    // Kaiiju end
++
+     /**
+      * Returns the current ticking task, or {@code null} if there is no ticking region.
+      * If this thread is not a TickThread, then returns {@code null}.
+@@ -210,10 +230,10 @@ public final class TickRegionScheduler {
+ 
+     // By using our own thread object, we can use a field for the current region rather than a ThreadLocal.
+     // This is much faster than a thread local, since the thread local has to use a map lookup.
+-    private static final class TickThreadRunner extends TickThread {
++    public static final class TickThreadRunner extends TickThread {
+ 
+         private ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> currentTickingRegion;
+-        private RegionizedWorldData currentTickingWorldRegionizedData;
++        public RegionizedWorldData currentTickingWorldRegionizedData; // Kaiiju
+         private SchedulerThreadPool.SchedulableTick currentTickingTask;
+         // Folia start - profiler
+         private ca.spottedleaf.leafprofiler.RegionizedProfiler.Handle profiler = ca.spottedleaf.leafprofiler.RegionizedProfiler.Handle.NO_OP_HANDLE;
+diff --git a/src/main/java/io/papermc/paper/util/TickThread.java b/src/main/java/io/papermc/paper/util/TickThread.java
+index c6b3c747d4c9792c3b690af4d45b13d2b05039ee..9e1149e0cd9eb098d2bee785501f2c779a2a9ed5 100644
+--- a/src/main/java/io/papermc/paper/util/TickThread.java
++++ b/src/main/java/io/papermc/paper/util/TickThread.java
+@@ -173,6 +173,7 @@ public class TickThread extends Thread {
+         );
+     }
+ 
++// THIS ONE!!!
+     public static boolean isTickThreadFor(final ServerLevel world, final int fromChunkX, final int fromChunkZ, final int toChunkX, final int toChunkZ) {
+         final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region =
+             TickRegionScheduler.getCurrentRegion();
+diff --git a/src/main/java/io/papermc/paper/world/ChunkEntitySlices.java b/src/main/java/io/papermc/paper/world/ChunkEntitySlices.java
+index 7e8dc9e8f381abfdcce2746edc93122d623622d1..3b42cfa24802f0a380ff26a82089a17494b3f0f6 100644
+--- a/src/main/java/io/papermc/paper/world/ChunkEntitySlices.java
++++ b/src/main/java/io/papermc/paper/world/ChunkEntitySlices.java
+@@ -68,7 +68,7 @@ public final class ChunkEntitySlices {
+     }
+ 
+     // Paper start - optimise CraftChunk#getEntities
+-    public org.bukkit.entity.Entity[] getChunkEntities() {
++    synchronized public org.bukkit.entity.Entity[] getChunkEntities() {
+         List<org.bukkit.entity.Entity> ret = new java.util.ArrayList<>();
+         final Entity[] entities = this.entities.getRawData();
+         for (int i = 0, size = Math.min(entities.length, this.entities.size()); i < size; ++i) {
+@@ -108,7 +108,7 @@ public final class ChunkEntitySlices {
+     }
+ 
+     // returns true if this chunk has transient entities remaining
+-    public boolean unload() {
++    synchronized public boolean unload() {
+         final int len = this.entities.size();
+         final Entity[] collectedEntities = Arrays.copyOf(this.entities.getRawData(), len);
+ 
+@@ -133,7 +133,7 @@ public final class ChunkEntitySlices {
+         return this.entities.size() != 0;
+     }
+ 
+-    private List<Entity> getAllEntities() {
++    synchronized private List<Entity> getAllEntities() {
+         final int len = this.entities.size();
+         if (len == 0) {
+             return new ArrayList<>();
+@@ -184,7 +184,7 @@ public final class ChunkEntitySlices {
+         this.preventStatusUpdates = prev;
+     }
+ 
+-    public void updateStatus(final FullChunkStatus status, final EntityLookup lookup) {
++    synchronized public void updateStatus(final FullChunkStatus status, final EntityLookup lookup) {
+         this.status = status;
+ 
+         final Entity[] entities = this.entities.getRawData();
+@@ -200,7 +200,7 @@ public final class ChunkEntitySlices {
+         }
+     }
+ 
+-    public boolean addEntity(final Entity entity, final int chunkSection) {
++    synchronized public boolean addEntity(final Entity entity, final int chunkSection) {
+         if (!this.entities.add(entity)) {
+             return false;
+         }
+@@ -225,7 +225,7 @@ public final class ChunkEntitySlices {
+         return true;
+     }
+ 
+-    public boolean removeEntity(final Entity entity, final int chunkSection) {
++    synchronized public boolean removeEntity(final Entity entity, final int chunkSection) {
+         if (!this.entities.remove(entity)) {
+             return false;
+         }
+@@ -290,7 +290,7 @@ public final class ChunkEntitySlices {
+         return ret;
+     }
+ 
+-    public <T extends Entity> void getEntities(final Class<? extends T> clazz, final Entity except, final AABB box, final List<? super T> into,
++    synchronized public <T extends Entity> void getEntities(final Class<? extends T> clazz, final Entity except, final AABB box, final List<? super T> into,
+                                                final Predicate<? super T> predicate) {
+         EntityCollectionBySection collection = this.entitiesByClass.get(clazz);
+         if (collection != null) {
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index aa750d30e48e61ae977e80120b39733d1d007b15..62b408e03dacab306449e0405171c2691f25323c 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -1571,7 +1571,33 @@ public class ServerLevel extends Level implements WorldGenLevel {
+         gameprofilerfiller.incrementCounter("tickNonPassenger");
+         if (isActive) { // Paper - EAR 2
+             TimingHistory.activatedEntityTicks++;
+-        entity.tick();
++
++        // Kaiiju start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) {
++final Thread currThread = Thread.currentThread();
++if (!(currThread instanceof io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner tickThreadRunner)) {
++    throw new RuntimeException("Wrong thread for entity ticking!!!");
++}
++final io.papermc.paper.threadedregions.RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
++final io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<io.papermc.paper.threadedregions.TickRegions.TickRegionData, io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData> currentRegion = io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegion();
++            if (!(entity instanceof net.minecraft.world.entity.animal.Bee) && (entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
++//                System.out.println("Multithreading " + entity);
++                xymb.MultiThreader.entityTickExecute(() -> {
++io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
++io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
++//System.out.println("BBBBB " + io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegionizedWorldData());
++                entity.tick();
++                });
++            } else {
++//                System.out.println("Skipped2 " + entity.getClass());
++                entity.tick();
++            }
++        } else {
++            entity.tick();
++        }
++        //xymb.MultiThreader.entityTickFinish();
++        // Kaiiju end
++
+         // Folia start - region threading
+         if (!io.papermc.paper.util.TickThread.isTickThreadFor(entity)) {
+             // removed from region while ticking
+@@ -1582,7 +1608,33 @@ public class ServerLevel extends Level implements WorldGenLevel {
+             return;
+         }
+         // Folia end - region threading
+-        } else { entity.inactiveTick(); } // Paper - EAR 2
++        } else {
++            // Kaiiju start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) {
++final Thread currThread = Thread.currentThread();
++if (!(currThread instanceof io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner tickThreadRunner)) {
++    throw new RuntimeException("Wrong thread for entity ticking!!!");
++}
++final io.papermc.paper.threadedregions.RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
++final io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<io.papermc.paper.threadedregions.TickRegions.TickRegionData, io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData> currentRegion = io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegion();
++            if (!(entity instanceof net.minecraft.world.entity.animal.Bee) && (entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
++//                System.out.println("Multithreading " + entity);
++                xymb.MultiThreader.entityTickExecute(() -> {
++io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
++io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
++//System.out.println("BBBBB " + io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegionizedWorldData());
++                entity.inactiveTick();
++                });
++            } else {
++//                System.out.println("Skipped2 " + entity.getClass());
++                entity.inactiveTick();
++            }
++        } else {
++            entity.inactiveTick();
++        }
++        // Kaiiju end
++//             entity.inactiveTick();
++        } // Paper - EAR 2
+         this.getProfiler().pop();
+         } finally { timer.stopTiming(); profiler.stopTimer(timerId); } // Paper - timings // Folia - timer
+         Iterator iterator = entity.getPassengers().iterator();
+@@ -2061,7 +2113,7 @@ public class ServerLevel extends Level implements WorldGenLevel {
+         }
+ 
+         this.getChunkSource().blockChanged(pos);
+-        if(this.paperConfig().misc.updatePathfindingOnBlockUpdate) { // Paper - option to disable pathfinding updates
++        if(this.paperConfig().misc.updatePathfindingOnBlockUpdate && !dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) { // Paper - option to disable pathfinding updates // Kaiiju
+         VoxelShape voxelshape = oldState.getCollisionShape(this, pos);
+         VoxelShape voxelshape1 = newState.getCollisionShape(this, pos);
+ 
+diff --git a/src/main/java/net/minecraft/world/entity/Entity.java b/src/main/java/net/minecraft/world/entity/Entity.java
+index 8a166b8b747ca18902e247d07991d03347ad5aa4..0031a8c8520d098f785c039ffe00d6e78354f8cb 100644
+--- a/src/main/java/net/minecraft/world/entity/Entity.java
++++ b/src/main/java/net/minecraft/world/entity/Entity.java
+@@ -1660,6 +1660,7 @@ public abstract class Entity implements Nameable, EntityAccess, CommandSource, S
+     protected void onInsideBlock(BlockState state) {}
+ 
+     public void gameEvent(GameEvent event, @Nullable Entity entity) {
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.disableVibrations) return; // Kaiiju
+         this.level().gameEvent(entity, event, this.position);
+     }
+ 
+@@ -5578,9 +5579,10 @@ public abstract class Entity implements Nameable, EntityAccess, CommandSource, S
+     }
+ 
+     @Override
+-    public final void setRemoved(Entity.RemovalReason reason) {
++    synchronized public final void setRemoved(Entity.RemovalReason reason) {
+         // Paper start - rewrite chunk system
+-        io.papermc.paper.util.TickThread.ensureTickThread(this, "Cannot remove entity off-main");
++        // THREAD CHECK
++//        io.papermc.paper.util.TickThread.ensureTickThread(this, "Cannot remove entity off-main");
+         if (!((ServerLevel)this.level).getEntityLookup().canRemoveEntity(this)) {
+             LOGGER.warn("Entity " + this + " is currently prevented from being removed from the world since it is processing section status updates", new Throwable());
+             return;
+diff --git a/src/main/java/net/minecraft/world/level/Level.java b/src/main/java/net/minecraft/world/level/Level.java
+index 4b9dae81398e171ae1455e234a4fb0943422c1c6..8ffcb28aece48b2e9c3297ae6bb8aacccbc86163 100644
+--- a/src/main/java/net/minecraft/world/level/Level.java
++++ b/src/main/java/net/minecraft/world/level/Level.java
+@@ -1579,8 +1579,9 @@ public abstract class Level implements LevelAccessor, AutoCloseable {
+     }
+ 
+     @Override
+-    public List<Entity> getEntities(@Nullable Entity except, AABB box, Predicate<? super Entity> predicate) {
+-        io.papermc.paper.util.TickThread.ensureTickThread((ServerLevel)this, box, "Cannot getEntities asynchronously"); // Folia - region threading
++    synchronized public List<Entity> getEntities(@Nullable Entity except, AABB box, Predicate<? super Entity> predicate) {
++// THREAD CHECK
++//        io.papermc.paper.util.TickThread.ensureTickThread((ServerLevel)this, box, "Cannot getEntities asynchronously"); // Folia - region threading
+         this.getProfiler().incrementCounter("getEntities");
+         List<Entity> list = Lists.newArrayList();
+         ((ServerLevel)this).getEntityLookup().getEntities(except, box, list, predicate); // Paper - optimise this call
+diff --git a/src/main/java/net/minecraft/world/level/gameevent/GameEventDispatcher.java b/src/main/java/net/minecraft/world/level/gameevent/GameEventDispatcher.java
+index 744160405680babbb83c99abcbe2dc89bf312398..4ab6f21c107a5ba9071a3d9d658904783758b346 100644
+--- a/src/main/java/net/minecraft/world/level/gameevent/GameEventDispatcher.java
++++ b/src/main/java/net/minecraft/world/level/gameevent/GameEventDispatcher.java
+@@ -26,6 +26,7 @@ public class GameEventDispatcher {
+     }
+ 
+     public void post(GameEvent event, Vec3 emitterPos, GameEvent.Context emitter) {
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.disableVibrations) return; // Kaiiju
+         int i = event.getNotificationRadius();
+         BlockPos blockposition = BlockPos.containing(emitterPos);
+         // CraftBukkit start
+diff --git a/src/main/java/net/minecraft/world/level/redstone/CollectingNeighborUpdater.java b/src/main/java/net/minecraft/world/level/redstone/CollectingNeighborUpdater.java
+index a61672154c4f733cdadd9ac34ca5507355d06c68..3287e3d9229d3f5765d2356b86319d1958f2b25a 100644
+--- a/src/main/java/net/minecraft/world/level/redstone/CollectingNeighborUpdater.java
++++ b/src/main/java/net/minecraft/world/level/redstone/CollectingNeighborUpdater.java
+@@ -45,7 +45,8 @@ public class CollectingNeighborUpdater implements NeighborUpdater {
+         this.addAndRun(pos, new CollectingNeighborUpdater.MultiNeighborUpdate(pos.immutable(), sourceBlock, except));
+     }
+ 
+-    private void addAndRun(BlockPos pos, CollectingNeighborUpdater.NeighborUpdates entry) {
++    // Abomination - entity multithreading synchronized
++    synchronized private void addAndRun(BlockPos pos, CollectingNeighborUpdater.NeighborUpdates entry) {
+         io.papermc.paper.util.TickThread.ensureTickThread((net.minecraft.server.level.ServerLevel)this.level, pos, "Adding block without owning region"); // Folia - region threading
+         boolean bl = this.count > 0;
+         boolean bl2 = this.maxChainedNeighborUpdates >= 0 && this.count >= this.maxChainedNeighborUpdates;
+@@ -66,7 +67,8 @@ public class CollectingNeighborUpdater implements NeighborUpdater {
+ 
+     }
+ 
+-    private void runUpdates() {
++    // Abomination - entity multithreading synchronized
++    synchronized private void runUpdates() {
+         try {
+             while(!this.stack.isEmpty() || !this.addedThisLayer.isEmpty()) {
+                 for(int i = this.addedThisLayer.size() - 1; i >= 0; --i) {
+diff --git a/src/main/java/org/bukkit/craftbukkit/entity/CraftGlowSquid.java b/src/main/java/org/bukkit/craftbukkit/entity/CraftGlowSquid.java
+index ad0b9025e38926555b47dee1e056c7c8714c91fe..8683a7e730bf5c013f7d112ac597cb0a1ef6282c 100644
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftGlowSquid.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftGlowSquid.java
+@@ -19,7 +19,8 @@ public class CraftGlowSquid extends CraftSquid implements GlowSquid {
+ 
+     @Override
+     public net.minecraft.world.entity.GlowSquid getHandle() {
+-        io.papermc.paper.util.TickThread.ensureTickThread(this.entity, "Accessing entity state off owning region's thread"); // Folia - region threading
++        // THREAD CHECK
++//        io.papermc.paper.util.TickThread.ensureTickThread(this.entity, "Accessing entity state off owning region's thread"); // Folia - region threading
+         return (net.minecraft.world.entity.GlowSquid) super.getHandle();
+     }
+ 
+diff --git a/src/main/java/org/bukkit/craftbukkit/entity/CraftSquid.java b/src/main/java/org/bukkit/craftbukkit/entity/CraftSquid.java
+index f93b160ae82b7cae6b11d214531df4618fd79f74..f64b2204e754a6e715c95fc6ceda118c66ef1138 100644
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftSquid.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftSquid.java
+@@ -18,7 +18,8 @@ public class CraftSquid extends CraftWaterMob implements Squid {
+ 
+     @Override
+     public net.minecraft.world.entity.animal.Squid getHandle() {
+-        io.papermc.paper.util.TickThread.ensureTickThread(this.entity, "Accessing entity state off owning region's thread"); // Folia - region threading
++        // THREAD CHECK
++//        io.papermc.paper.util.TickThread.ensureTickThread(this.entity, "Accessing entity state off owning region's thread"); // Folia - region threading
+         return (net.minecraft.world.entity.animal.Squid) this.entity;
+     }
+ 
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index d62dc495888e4eb7962cc1797f06ab8a03eef1b6..2694178e41c39d2fb233a9bcc10bc277fc251242 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -1,10 +1,13 @@
+ package xymb;
+ 
+ import com.google.common.util.concurrent.ThreadFactoryBuilder;
++import io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner;
++import java.util.concurrent.ThreadFactory;
+ import java.util.concurrent.Executor;
+ import java.util.concurrent.Executors;
+ import java.util.concurrent.ConcurrentLinkedQueue;
+ import java.util.concurrent.atomic.AtomicInteger;
++import io.papermc.paper.util.TickThread;
+ 
+ public class MultiThreader {
+ 
+@@ -66,6 +69,38 @@ public class MultiThreader {
+             java.util.concurrent.locks.LockSupport.parkNanos(10000);
+         }
+     }
++/*
++    private static final Executor entityTickExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
++            .setNameFormat("xymb-MultiThreaderHigh-%d")
++            .setPriority(Thread.NORM_PRIORITY + 1)
++            .build());*/
++private static final Executor entityTickExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
++    private final AtomicInteger threadNumber = new AtomicInteger(1);
++
++    @Override
++    public Thread newThread(Runnable r) {
++//        Thread thread = new TickThread(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
++        Thread thread = new TickThreadRunner(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
++        thread.setPriority(Thread.NORM_PRIORITY + 1);
++        return thread;
++    }
++});
++
++    private static AtomicInteger entityTickRemaining = new AtomicInteger(0);
++
++    public static void entityTickExecute(final Runnable runnable) {
++        entityTickRemaining.incrementAndGet();
++        entityTickExecutor.execute(() -> {
++            runnable.run();
++            entityTickRemaining.decrementAndGet();
++        });
++    }
++
++    public static void entityTickFinish() {
++        while (entityTickRemaining.get() > 0) {
++            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        }
++    }
+ 
+ /*
+     public static void variousThingsExecute(final Runnable runnable) {

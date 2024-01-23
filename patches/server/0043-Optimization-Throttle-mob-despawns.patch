@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 03:04:33 +0100
+Subject: [PATCH] Optimization: Throttle mob despawns.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 22c2e4fd7300a3566829628805f07ba37c363c40..7add963a6aeef48b2cfdc26e2412991b36952b69 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -283,6 +283,9 @@ public class KaiijuConfig {
+     // Throttle entity activations to once every 10 ticks
+     public static boolean throttleEntityActivation = false;
+ 
++    // Throttle mob despawns to once every 10 ticks
++    public static boolean throttleMobDespawns = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -299,5 +302,6 @@ public class KaiijuConfig {
+         flameGraphDebugMode = getBoolean("optimizations-dirty-will-change-name.fameGraphDebugMode", flameGraphDebugMode);
+         disableDebugInformationForPacketProcessing = getBoolean("optimizations-dirty-will-change-name.disable-debug-information-for-packet-processing", disableDebugInformationForPacketProcessing);
+         throttleEntityActivation = getBoolean("optimizations-dirty-will-change-name.throttle-entity-activation", throttleEntityActivation);
++        throttleMobDespawns = getBoolean("optimizations-dirty-will-change-name.throttle-mob-despawns", throttleMobDespawns);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/world/entity/Mob.java b/src/main/java/net/minecraft/world/entity/Mob.java
+index cdcca7c9a9635151584f094814ab4902d9eb7595..b187b42b676515848015545c9da0d8fb7c254fe1 100644
+--- a/src/main/java/net/minecraft/world/entity/Mob.java
++++ b/src/main/java/net/minecraft/world/entity/Mob.java
+@@ -882,11 +882,14 @@ public abstract class Mob extends LivingEntity implements Targeting {
+         return false;
+     }
+ 
++    private int throttleMobDespawn = 0; // Abomination
++
+     @Override
+     public void checkDespawn() {
+         if (this.level().getDifficulty() == Difficulty.PEACEFUL && this.shouldDespawnInPeaceful()) {
+             this.discard();
+         } else if (!this.isPersistenceRequired() && !this.requiresCustomPersistence()) {
++            if (dev.kaiijumc.kaiiju.KaiijuConfig.throttleMobDespawns && throttleMobDespawn++ % 10 == 0) return; // Abomination
+             Player entityhuman = this.level().findNearbyPlayer(this, -1.0D, EntitySelector.PLAYER_AFFECTS_SPAWNING); // Paper
+ 
+             if (entityhuman != null) {

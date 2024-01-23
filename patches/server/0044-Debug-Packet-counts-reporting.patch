@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Fri, 30 Jun 2023 16:51:59 +0200
+Subject: [PATCH] Debug: Packet counts reporting
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 7add963a6aeef48b2cfdc26e2412991b36952b69..89c5d4388e6f10334450f419fc2e2fcf62d55b71 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -304,4 +304,10 @@ public class KaiijuConfig {
+         throttleEntityActivation = getBoolean("optimizations-dirty-will-change-name.throttle-entity-activation", throttleEntityActivation);
+         throttleMobDespawns = getBoolean("optimizations-dirty-will-change-name.throttle-mob-despawns", throttleMobDespawns);
+     }
++
++    public static int packetReportInterval = 0;
++
++    private static void debugSeetings() {
++        packetReportInterval = getInt("debug.packet-report-interval", packetReportInterval);
++    }
+ }
+diff --git a/src/main/java/net/minecraft/network/Connection.java b/src/main/java/net/minecraft/network/Connection.java
+index 88636b67e79480306a6e17f8c92c9525b61d0e3f..243da65ae7dee5a839702cdf3bbe4264533646a7 100644
+--- a/src/main/java/net/minecraft/network/Connection.java
++++ b/src/main/java/net/minecraft/network/Connection.java
+@@ -33,6 +33,8 @@ import java.net.InetSocketAddress;
+ import java.net.SocketAddress;
+ import java.util.Objects;
+ import java.util.Queue;
++import java.util.concurrent.*;
++import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.concurrent.RejectedExecutionException;
+ import java.util.function.Consumer;
+ import java.util.function.Supplier;
+@@ -334,7 +336,41 @@ public class Connection extends SimpleChannelInboundHandler<Packet<?>> {
+         }
+     }
+ 
++    // Kaiiju start
++    private static final ConcurrentMap<Class<?>, AtomicInteger> packetCounts = new ConcurrentHashMap<>();
++    private static long lastPrintTime = System.currentTimeMillis();
++    private static int throttling = 0;
++
++    private static <T extends PacketListener> void handlePacket(Packet<T> packet) {
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.packetReportInterval <= 0) return;
++        packetCounts.computeIfAbsent(packet.getClass(), k -> new AtomicInteger(0)).incrementAndGet();
++
++        long currentTime = System.currentTimeMillis();
++        if(throttling++ % 100 == 0 && currentTime - lastPrintTime >= dev.kaiijumc.kaiiju.KaiijuConfig.packetReportInterval * 1000) {
++            long lastTime = lastPrintTime;
++            lastPrintTime = currentTime;
++            printAndResetCounts(currentTime, lastTime);
++        }
++    }
++
++    private static void printAndResetCounts(long currentTime, long lastTime) {
++        double time = ((currentTime + 1) - lastTime) / 1000.;
++        final AtomicInteger sum = new AtomicInteger(0);
++        java.util.Map<Class<?>, Double> sortedPacketCounts = new java.util.LinkedHashMap<>();
++        packetCounts.entrySet().stream()
++            .sorted(java.util.Map.Entry.<Class<?>, AtomicInteger>comparingByValue((a, b) -> Double.compare(a.get() / time, b.get() / time)))
++            .forEachOrdered(e -> sortedPacketCounts.put(e.getKey(), e.getValue().get() / time));
++        sortedPacketCounts.forEach((k, v) -> {
++            if (v > 0) Connection.LOGGER.info(String.format("Packet %s pps %.1f", k.getSimpleName(), v));
++            sum.addAndGet((int) (v * time));
++            packetCounts.get(k).set(0);
++        });
++        Connection.LOGGER.info(String.format("Packet total pps %.1f\n", sum.get() / time));
++    }
++    // Kaiiju end
++
+     private static <T extends PacketListener> void genericsFtw(Packet<T> packet, PacketListener listener) {
++        handlePacket(packet); // Kaiiju
+         packet.handle((T) listener); // CraftBukkit - decompile error
+     }
+ 
+@@ -473,6 +509,7 @@ public class Connection extends SimpleChannelInboundHandler<Packet<?>> {
+         try {
+         // Paper end - Optimize network
+         ChannelFuture channelfuture = flush ? this.channel.writeAndFlush(packet) : this.channel.write(packet);
++        handlePacket(packet); // Kaiiju
+ 
+         if (callbacks != null) {
+             channelfuture.addListener((future) -> {

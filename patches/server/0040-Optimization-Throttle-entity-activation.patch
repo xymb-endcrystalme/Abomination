@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 02:22:17 +0100
+Subject: [PATCH] Optimization: Throttle entity activation.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 0f3f4c7246ed6feddb47afc58a1abc5d842500a2..22c2e4fd7300a3566829628805f07ba37c363c40 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -280,6 +280,9 @@ public class KaiijuConfig {
+     // Packet processing deque is slow (about 20% of packet processing in flame graph) and it's used only for debugging
+     public static boolean disableDebugInformationForPacketProcessing = false;
+ 
++    // Throttle entity activations to once every 10 ticks
++    public static boolean throttleEntityActivation = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -295,5 +298,6 @@ public class KaiijuConfig {
+         multithreadSendChanges = getBoolean("optimizations-dirty-will-change-name.multithread-send-changes", multithreadSendChanges);
+         flameGraphDebugMode = getBoolean("optimizations-dirty-will-change-name.fameGraphDebugMode", flameGraphDebugMode);
+         disableDebugInformationForPacketProcessing = getBoolean("optimizations-dirty-will-change-name.disable-debug-information-for-packet-processing", disableDebugInformationForPacketProcessing);
++        throttleEntityActivation = getBoolean("optimizations-dirty-will-change-name.throttle-entity-activation", throttleEntityActivation);
+     }
+ }
+diff --git a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+index 5280f21618509a707de52cab2d5f99c64b34cebf..3927b650f69eefe797f1a0b9b2f7502b9b20bf22 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
++++ b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+@@ -332,6 +332,7 @@ public final class RegionizedWorldData {
+     private final IteratorSafeOrderedReferenceSet<Entity> entityTickList = new IteratorSafeOrderedReferenceSet<>();
+     private final IteratorSafeOrderedReferenceSet<Mob> navigatingMobs = new IteratorSafeOrderedReferenceSet<>();
+     public final dev.kaiijumc.kaiiju.KaiijuEntityThrottler entityThrottler = new dev.kaiijumc.kaiiju.KaiijuEntityThrottler(); // Kaiiju
++    public int entityActivationThrottle = 0; // Abomination
+ 
+     // block ticking
+     private final ObjectLinkedOpenHashSet<BlockEventData> blockEvents = new ObjectLinkedOpenHashSet<>();
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index 62b408e03dacab306449e0405171c2691f25323c..57014218668b11d264bd4ac39bed888f8cbe8438 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -991,7 +991,7 @@ public class ServerLevel extends Level implements WorldGenLevel {
+             }
+ 
+             if (kaiijuConfig.enableEntityThrottling) regionizedWorldData.entityThrottler.tickLimiterStart(); // Kaiiju
+-            org.spigotmc.ActivationRange.activateEntities(this); // Spigot
++            if (dev.kaiijumc.kaiiju.KaiijuConfig.throttleEntityActivation && regionizedWorldData.entityActivationThrottle++ % 10 == 0) org.spigotmc.ActivationRange.activateEntities(this); // Spigot // Abomination
+             this.timings.entityTick.startTiming(); // Spigot
+             profiler.startTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.ENTITY_TICK); try { // Folia - profiler
+             regionizedWorldData.forEachTickingEntity((entity) -> { // Folia - regionised ticking

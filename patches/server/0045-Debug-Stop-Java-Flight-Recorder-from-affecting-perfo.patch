@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sun, 28 Jan 2024 00:59:20 +0100
+Subject: [PATCH] Debug: Stop Java Flight Recorder from affecting performance.
+
+
+diff --git a/src/main/java/net/minecraft/util/profiling/jfr/JfrProfiler.java b/src/main/java/net/minecraft/util/profiling/jfr/JfrProfiler.java
+index fafec3610c2f493536285dee0b70747eb3b5d8c8..6457e03b0b0192d4c03dffa329543461d8012728 100644
+--- a/src/main/java/net/minecraft/util/profiling/jfr/JfrProfiler.java
++++ b/src/main/java/net/minecraft/util/profiling/jfr/JfrProfiler.java
+@@ -162,33 +162,36 @@ public class JfrProfiler implements JvmProfiler {
+ 
+     @Override
+     public void onServerTick(float tickTime) {
++        /*
+         if (ServerTickTimeEvent.TYPE.isEnabled()) {
+             this.currentAverageTickTime = tickTime;
+-        }
++        }*/ // Abomination
+ 
+     }
+ 
+     @Override
+     public void onPacketReceived(ConnectionProtocol state, int packetId, SocketAddress remoteAddress, int bytes) {
++        /*
+         if (PacketReceivedEvent.TYPE.isEnabled()) {
+             (new PacketReceivedEvent(state.id(), packetId, remoteAddress, bytes)).commit();
+         }
+ 
+         if (NetworkSummaryEvent.TYPE.isEnabled()) {
+             this.networkStatFor(remoteAddress).trackReceivedPacket(bytes);
+-        }
++        }*/ // Abomination
+ 
+     }
+ 
+     @Override
+     public void onPacketSent(ConnectionProtocol state, int packetId, SocketAddress remoteAddress, int bytes) {
++        /*
+         if (PacketSentEvent.TYPE.isEnabled()) {
+             (new PacketSentEvent(state.id(), packetId, remoteAddress, bytes)).commit();
+         }
+ 
+         if (NetworkSummaryEvent.TYPE.isEnabled()) {
+             this.networkStatFor(remoteAddress).trackSentPacket(bytes);
+-        }
++        }*/ // Abomination
+ 
+     }
+ 

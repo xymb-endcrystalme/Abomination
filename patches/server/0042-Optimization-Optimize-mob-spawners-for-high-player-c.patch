@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 02:50:13 +0100
+Subject: [PATCH] Optimization: Optimize mob spawners for high player counts.
+
+
+diff --git a/src/main/java/net/minecraft/world/level/EntityGetter.java b/src/main/java/net/minecraft/world/level/EntityGetter.java
+index 08884cc7d787887b470e90897838969d50dc4ad9..1cabccfa68212b6a82e0446a73ee7428e59c6945 100644
+--- a/src/main/java/net/minecraft/world/level/EntityGetter.java
++++ b/src/main/java/net/minecraft/world/level/EntityGetter.java
+@@ -184,9 +184,9 @@ public interface EntityGetter {
+     // Paper start
+     default boolean hasNearbyAlivePlayerThatAffectsSpawning(double x, double y, double z, double range) {
+         for (Player player : this.getLocalPlayers()) { // Folia - region threading
+-            if (EntitySelector.PLAYER_AFFECTS_SPAWNING.test(player)) { // combines NO_SPECTATORS and LIVING_ENTITY_STILL_ALIVE with an "affects spawning" check
++            if (true || EntitySelector.PLAYER_AFFECTS_SPAWNING.test(player)) { // combines NO_SPECTATORS and LIVING_ENTITY_STILL_ALIVE with an "affects spawning" check // Abomination - optimize for high player counts
+                 double distanceSqr = player.distanceToSqr(x, y, z);
+-                if (range < 0.0D || distanceSqr < range * range) {
++                if ((range < 0.0D || distanceSqr < range * range) && EntitySelector.PLAYER_AFFECTS_SPAWNING.test(player)) { // Abomination
+                     return true;
+                 }
+             }

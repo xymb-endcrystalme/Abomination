@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sun, 28 Jan 2024 02:06:11 +0100
+Subject: [PATCH] Optimization: Add support for io_uring
+
+This only works when not using unix domain socket
+and compression is disabled because
+the netty io_uring transport does not support
+unix domain socket and the client can not decode
+compressed packets sent with io_uring.
+
+Credit: Aviana Cruz <gwencroft@proton.me>
+
+diff --git a/build.gradle.kts b/build.gradle.kts
+index bfe47f8bc6c301edb3fc4496764c2711f64ce6d2..dcc27d0cf835560c3661c6779797d85c086770f4 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -19,6 +19,10 @@ dependencies {
+         exclude("io.papermc.paper", "paper-api")
+     }
+     // Folia end
++    // Paper start - Add support for io_uring
++    implementation("io.netty.incubator:netty-incubator-transport-native-io_uring:0.0.21.Final:linux-x86_64")
++    implementation("io.netty.incubator:netty-incubator-transport-native-io_uring:0.0.21.Final:linux-aarch_64")
++    // Paper end - Add support for io_uring
+     // Kaiiju start - Linear format
+     implementation("com.github.luben:zstd-jni:1.5.4-1")
+     implementation("org.lz4:lz4-java:1.8.0")
+diff --git a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+index be3d0bf530267a7b58d44ecdd4b1fb1798f10562..b4c44646e6e19c403ae15e7b460fd1349766c147 100644
+--- a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
++++ b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+@@ -330,6 +330,7 @@ public class GlobalConfiguration extends ConfigurationPart {
+         public boolean useAlternativeLuckFormula = false;
+         public boolean useDimensionTypeForCustomSpawners = false;
+         public boolean strictAdvancementDimensionCheck = false;
++        public boolean useIouring = false; // Paper - Add support for io_uring
+         public IntOr.Default compressionLevel = IntOr.Default.USE_DEFAULT;
+     }
+ 
+diff --git a/src/main/java/net/minecraft/server/network/ServerConnectionListener.java b/src/main/java/net/minecraft/server/network/ServerConnectionListener.java
+index 81090d1b5d67506268a41c6387a1d45302e88a5c..5e7d4a9e3b2101b9f18b4efae05fd9e52dc9db32 100644
+--- a/src/main/java/net/minecraft/server/network/ServerConnectionListener.java
++++ b/src/main/java/net/minecraft/server/network/ServerConnectionListener.java
+@@ -23,6 +23,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
+ import io.netty.channel.socket.ServerSocketChannel;
+ import io.netty.channel.socket.nio.NioServerSocketChannel;
+ import io.netty.handler.timeout.ReadTimeoutHandler;
++import io.netty.incubator.channel.uring.IOUringEventLoopGroup;
+ import io.netty.util.HashedWheelTimer;
+ import io.netty.util.Timeout;
+ import io.netty.util.Timer;
+@@ -57,6 +58,11 @@ public class ServerConnectionListener {
+     public static final Supplier<EpollEventLoopGroup> SERVER_EPOLL_EVENT_GROUP = Suppliers.memoize(() -> {
+         return new EpollEventLoopGroup(0, (new ThreadFactoryBuilder()).setNameFormat("Netty Epoll Server IO #%d").setDaemon(true).setUncaughtExceptionHandler(new net.minecraft.DefaultUncaughtExceptionHandlerWithName(LOGGER)).build()); // Paper
+     });
++    // Paper start - Add support for io_uring
++    public static final Supplier<IOUringEventLoopGroup> SERVER_IO_URING_EVENT_GROUP = Suppliers.memoize(() -> {
++        return new IOUringEventLoopGroup(0, (new ThreadFactoryBuilder()).setNameFormat("Netty io_uring Server IO #%d").setDaemon(true).setUncaughtExceptionHandler(new net.minecraft.DefaultUncaughtExceptionHandlerWithName(LOGGER)).build());
++    });
++    // Paper end - Add support for io_uring
+     final MinecraftServer server;
+     public volatile boolean running;
+     private final List<ChannelFuture> channels = Collections.synchronizedList(Lists.newArrayList());
+@@ -90,16 +96,24 @@ public class ServerConnectionListener {
+             Class oclass;
+             EventLoopGroup eventloopgroup;
+ 
+-            if (Epoll.isAvailable() && this.server.isEpollEnabled()) {
+-                // Paper start
+-                if (address instanceof io.netty.channel.unix.DomainSocketAddress) {
+-                    oclass = io.netty.channel.epoll.EpollServerDomainSocketChannel.class;
++            if ((io.netty.incubator.channel.uring.IOUring.isAvailable() || Epoll.isAvailable()) && this.server.isEpollEnabled()) {
++                if (io.papermc.paper.configuration.GlobalConfiguration.get().misc.useIouring && io.netty.incubator.channel.uring.IOUring.isAvailable() && !(address instanceof io.netty.channel.unix.DomainSocketAddress) && this.server.getCompressionThreshold() == -1) {
++                    oclass = io.netty.incubator.channel.uring.IOUringServerSocketChannel.class;
++                    eventloopgroup = (EventLoopGroup)ServerConnectionListener.SERVER_IO_URING_EVENT_GROUP.get();
++                    ServerConnectionListener.LOGGER.info("Using io_uring channel type");
++                } else if (Epoll.isAvailable()) {
++                    if (address instanceof io.netty.channel.unix.DomainSocketAddress) {
++                        oclass = io.netty.channel.epoll.EpollServerDomainSocketChannel.class;
++                    } else {
++                        oclass = EpollServerSocketChannel.class;
++                    }
++                    eventloopgroup = (EventLoopGroup)ServerConnectionListener.SERVER_EPOLL_EVENT_GROUP.get();
++                    ServerConnectionListener.LOGGER.info("Using epoll channel type");
+                 } else {
+-                oclass = EpollServerSocketChannel.class;
++                    oclass = NioServerSocketChannel.class;
++                    eventloopgroup = (EventLoopGroup)ServerConnectionListener.SERVER_EVENT_GROUP.get();
++                    ServerConnectionListener.LOGGER.info("Using default channel type");
+                 }
+-                // Paper end
+-                eventloopgroup = (EventLoopGroup) ServerConnectionListener.SERVER_EPOLL_EVENT_GROUP.get();
+-                ServerConnectionListener.LOGGER.info("Using epoll channel type");
+             } else {
+                 oclass = NioServerSocketChannel.class;
+                 eventloopgroup = (EventLoopGroup) ServerConnectionListener.SERVER_EVENT_GROUP.get();

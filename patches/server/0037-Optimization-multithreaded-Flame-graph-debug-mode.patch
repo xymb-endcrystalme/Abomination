@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 00:53:56 +0100
+Subject: [PATCH] Optimization multithreaded: Flame graph debug mode.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 9acad95001da85953fae1d3fc15ac1445199cd91..ee601c372aac389f2970710515c106874c572fc3 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -274,6 +274,9 @@ public class KaiijuConfig {
+     // WIP - multithread sendChanges
+     public static boolean multithreadSendChanges = false;
+ 
++    // Disables parkNanos on Multithreader finish which allows to show finishes on flame graphs in JDK Mission Control
++    public static boolean flameGraphDebugMode = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -287,5 +290,6 @@ public class KaiijuConfig {
+         disableVibrations = getBoolean("optimizations-dirty-will-change-name.disable-vibrations", disableVibrations);
+         multithreadServerboundPackets = getBoolean("optimizations-dirty-will-change-name.multithread-serverbound-packets", multithreadServerboundPackets);
+         multithreadSendChanges = getBoolean("optimizations-dirty-will-change-name.multithread-send-changes", multithreadSendChanges);
++        flameGraphDebugMode = getBoolean("optimizations-dirty-will-change-name.fameGraphDebugMode", flameGraphDebugMode);
+     }
+ }
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 394bb7f55524cd1cc01f8fc32fd53e1ec03d4eac..3af138e9157b0bb655f8509d0e93777d46f15d0f 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -66,7 +66,7 @@ public class MultiThreader {
+ 
+     public static void sendChunkFinish() {
+         while (sendChunkRemaining.get() > 0) {
+-            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++            waitALittle();
+         }
+     }
+ /*
+@@ -98,7 +98,7 @@ private static final Executor entityTickExecutor = Executors.newFixedThreadPool(
+ 
+     public static void entityTickFinish() {
+         while (entityTickRemaining.get() > 0) {
+-            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++            waitALittle();
+         }
+     }
+ 
+@@ -125,7 +125,7 @@ private static final Executor sendChangesExecutor = Executors.newFixedThreadPool
+ 
+     public static void sendChangesFinish() {
+         while (sendChangesRemaining.get() > 0) {
+-            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++            waitALittle();
+         }
+     }
+ 
+@@ -244,8 +244,11 @@ private static final Executor sendChangesExecutor = Executors.newFixedThreadPool
+ 
+     public static void serverboundFinish() {
+         while (serverboundRemaining.get() > 0) {
+-            java.util.concurrent.locks.LockSupport.parkNanos(10000);
++            waitALittle();
+         }
+     }
+ 
++    private static void waitALittle() {
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.flameGraphDebugMode) java.util.concurrent.locks.LockSupport.parkNanos(10000);
++    }
+ }
+\ No newline at end of file

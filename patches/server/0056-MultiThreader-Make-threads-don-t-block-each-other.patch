@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Tue, 30 Jan 2024 17:04:34 +0100
+Subject: [PATCH] MultiThreader: Make threads don't block each other.
+
+
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 07ca37a1b6c2e97807960a8f917b132969f8667d..5dc8cf9585a6ade7b21430c475089772b0f42687 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -30,24 +30,28 @@ public class MultiThreader {
+         private final String name;
+ 
+         private Executor executor = null;
+-        private final AtomicInteger remaining = new AtomicInteger(0);
++        private AtomicInteger remaining[] = null;
+ 
+         private MultiThreaderImpl(String name) {
+             this.name = name;
+         }
+ 
+         private synchronized void createExecutor() {
+-            if (executor == null) executor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
+-                private final AtomicInteger threadNumber = new AtomicInteger(1);
++            if (executor == null) {
++                executor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
++                    private final AtomicInteger threadNumber = new AtomicInteger(1);
+ 
+-                @Override
+-                public Thread newThread(Runnable r) {
+-                    Thread thread = new TickThreadRunner(r, "MultiThreader-" + name + "-" + threadNumber.getAndIncrement());
+-                    thread.setPriority(Thread.NORM_PRIORITY + 1);
+-                    ((TickThread)thread).isMultiThreaded = true;
+-                    return thread;
+-                }
+-            });
++                    @Override
++                    public Thread newThread(Runnable r) {
++                        Thread thread = new TickThreadRunner(r, "MultiThreader-" + name + "-" + threadNumber.getAndIncrement());
++                        thread.setPriority(Thread.NORM_PRIORITY + 1);
++                        ((TickThread)thread).isMultiThreaded = true;
++                        return thread;
++                    }
++                });
++                remaining = new AtomicInteger[tickThreads];
++                for (int i = 0 ; i < remaining.length ; i++) remaining[i] = new AtomicInteger(0);
++            }
+         }
+ 
+         public void execute(final Runnable runnable) {
+@@ -59,7 +63,8 @@ public class MultiThreader {
+             final RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
+             final ThreadedRegion<TickRegionData, TickRegionSectionData> currentRegion = TickRegionScheduler.getCurrentRegion();
+ 
+-            remaining.incrementAndGet();
++            final int threadNo = regionThreadNo();
++            remaining[threadNo].incrementAndGet();
+             executor.execute(() -> {
+                 try {
+                     TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
+@@ -69,17 +74,14 @@ public class MultiThreader {
+                     io.papermc.paper.util.TraceUtil.printStackTrace(t);
+                     LOGGER.error("Exception in multithreaded " + name);
+                 }
+-                remaining.decrementAndGet();
++                remaining[threadNo].decrementAndGet();
+             });
+         }
+ 
+         public void finish() {
+             if (executor == null) createExecutor();
+-            while (remaining.get() > 0) waitALittle();
+-            final Thread currThread = Thread.currentThread();
+-            if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
+-                throw new RuntimeException("Wrong thread for MultiThreader");
+-            }
++            final int threadNo = regionThreadNo();
++            while (remaining[threadNo].get() > 0) waitALittle();
+         }
+     }
+ 
+@@ -93,6 +95,9 @@ public class MultiThreader {
+ 
+     private static int regionThreadNo() {
+         final Thread currThread = Thread.currentThread();
++        if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
++            throw new RuntimeException("Wrong thread for MultiThreader");
++        }
+         return ((TickThread)currThread).id % tickThreads;
+     }
+ }
+\ No newline at end of file

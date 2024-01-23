@@ -1,0 +1,166 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 29 Jan 2024 03:26:48 +0100
+Subject: [PATCH] Optimization: Don't copy item NBT's when not needed
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 296089ce92834a22e78a5df65908da397266284b..7d30c12d53b5338e20ae5b067291c5000e9e083d 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -313,6 +313,11 @@ public class KaiijuConfig {
+     // Fast matching for ItemStacks. Pretty important for anarchies.
+     public static boolean shulkerBoxFastMatch = false;
+ 
++    // Replaces most instances of ItemStack.copy() with ItemStack.slimCopy() for performance
++    // It's impact can be very big on an anarchy server (shulkers full of stuff)
++    // Always enable when using `NBT stash deduplication` for performance reasons
++    public static boolean skipUnnecessaryNBTCopy = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -331,6 +336,7 @@ public class KaiijuConfig {
+         throttleEntityActivation = getBoolean("optimizations-dirty-will-change-name.throttle-entity-activation", throttleEntityActivation);
+         throttleMobDespawns = getBoolean("optimizations-dirty-will-change-name.throttle-mob-despawns", throttleMobDespawns);
+         shulkerBoxFastMatch = getBoolean("optimizations-dirty-will-change-name.shulker-box-fast-match", shulkerBoxFastMatch);
++        skipUnnecessaryNBTCopy = getBoolean("optimizations-dirty-will-change-name.skip-unnecessary-nbt-copy", skipUnnecessaryNBTCopy);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetContentPacket.java b/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetContentPacket.java
+index dbd8b9b09b82c1b75e8be9dc7416d9f0863c8c87..c8f08d31dcf589d63ba6606bc14f996fa229c979 100644
+--- a/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetContentPacket.java
++++ b/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetContentPacket.java
+@@ -17,11 +17,21 @@ public class ClientboundContainerSetContentPacket implements Packet<ClientGamePa
+         this.stateId = revision;
+         this.items = NonNullList.withSize(contents.size(), ItemStack.EMPTY);
+ 
+-        for(int i = 0; i < contents.size(); ++i) {
+-            this.items.set(i, contents.get(i).copy());
+-        }
++        // Abomination start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy) {
++            for(int i = 0; i < contents.size(); ++i) {
++                this.items.set(i, contents.get(i).slimCopy());
++            }
++
++            this.carriedItem = cursorStack.slimCopy();
++        } else {
++            for(int i = 0; i < contents.size(); ++i) {
++                this.items.set(i, contents.get(i).copy());
++            }
+ 
+-        this.carriedItem = cursorStack.copy();
++            this.carriedItem = cursorStack.copy();
++        }
++        // Abomination end
+     }
+ 
+     public ClientboundContainerSetContentPacket(FriendlyByteBuf buf) {
+diff --git a/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java b/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java
+index 13ee7ad9c9415cd785b5487de7131c932c2198a0..f24821fe4cad1d83df6366997e5438102cbaaa83 100644
+--- a/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java
++++ b/src/main/java/net/minecraft/network/protocol/game/ClientboundContainerSetSlotPacket.java
+@@ -16,7 +16,8 @@ public class ClientboundContainerSetSlotPacket implements Packet<ClientGamePacke
+         this.containerId = syncId;
+         this.stateId = revision;
+         this.slot = slot;
+-        this.itemStack = stack.copy();
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy) this.itemStack = stack.slimCopy(); // Abomination
++        else this.itemStack = stack.copy(); // Abomination
+     }
+ 
+     public ClientboundContainerSetSlotPacket(FriendlyByteBuf buf) {
+diff --git a/src/main/java/net/minecraft/world/inventory/AbstractContainerMenu.java b/src/main/java/net/minecraft/world/inventory/AbstractContainerMenu.java
+index 8fd82051bba33b4703e4d99fff886b63a319a5ba..d4b9ebbc645aa590068d6da23a580009edc4065d 100644
+--- a/src/main/java/net/minecraft/world/inventory/AbstractContainerMenu.java
++++ b/src/main/java/net/minecraft/world/inventory/AbstractContainerMenu.java
+@@ -186,12 +186,23 @@ public abstract class AbstractContainerMenu {
+         int i = 0;
+ 
+         int j;
++        // Abomination start
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy) {
++            for (j = this.slots.size(); i < j; ++i) {
++                ItemStack stack = ((Slot) this.slots.get(i)).getItem();
++                if (stack.getItem() instanceof net.minecraft.world.item.Equipable) this.remoteSlots.set(i, stack.copy());
++                else this.remoteSlots.set(i, stack.slimCopy());
++            }
+ 
+-        for (j = this.slots.size(); i < j; ++i) {
+-            this.remoteSlots.set(i, ((Slot) this.slots.get(i)).getItem().copy());
+-        }
++            this.remoteCarried = this.getCarried().slimCopy();
++        } else {
++            for (j = this.slots.size(); i < j; ++i) {
++                this.remoteSlots.set(i, ((Slot) this.slots.get(i)).getItem().copy());
++            }
+ 
+-        this.remoteCarried = this.getCarried().copy();
++            this.remoteCarried = this.getCarried().copy();
++        }
++        // Abomination end
+         i = 0;
+ 
+         for (j = this.dataSlots.size(); i < j; ++i) {
+@@ -295,7 +306,8 @@ public abstract class AbstractContainerMenu {
+         ItemStack itemstack1 = (ItemStack) this.lastSlots.get(slot);
+ 
+         if (!ItemStack.matches(itemstack1, stack)) {
+-            ItemStack itemstack2 = (ItemStack) copySupplier.get();
++            ItemStack itemstack2 = stack.slimCopy(); // Abomination
++            if (!dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy) itemstack2 = (ItemStack) copySupplier.get(); // Abomination
+ 
+             this.lastSlots.set(slot, itemstack2);
+             Iterator iterator = this.containerListeners.iterator();
+@@ -314,7 +326,8 @@ public abstract class AbstractContainerMenu {
+             ItemStack itemstack1 = (ItemStack) this.remoteSlots.get(slot);
+ 
+             if (!ItemStack.matches(itemstack1, stack)) {
+-                ItemStack itemstack2 = (ItemStack) copySupplier.get();
++                ItemStack itemstack2 = stack.slimCopy(); // Abomination
++                if (!dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy || itemstack2.getItem() instanceof net.minecraft.world.item.Equipable) itemstack2 = (ItemStack) copySupplier.get(); // Abomination
+ 
+                 this.remoteSlots.set(slot, itemstack2);
+                 if (this.synchronizer != null) {
+diff --git a/src/main/java/net/minecraft/world/item/ItemStack.java b/src/main/java/net/minecraft/world/item/ItemStack.java
+index c6a042bd16fb08ec1b37a8d03606877fa58509b9..ef48ee2d8e17642f7fc82bc4bc605dbecb0d7ab3 100644
+--- a/src/main/java/net/minecraft/world/item/ItemStack.java
++++ b/src/main/java/net/minecraft/world/item/ItemStack.java
+@@ -280,7 +280,8 @@ public final class ItemStack {
+         this.item = (Item) BuiltInRegistries.ITEM.get(new ResourceLocation(nbttagcompound.getString("id")));
+         this.count = nbttagcompound.getByte("Count");
+         if (nbttagcompound.contains("tag", 10)) {
+-            this.tag = nbttagcompound.getCompound("tag").copy();
++            if (dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy) this.tag = nbttagcompound.getCompound("tag"); // Abomination
++            else this.tag = nbttagcompound.getCompound("tag").copy();
+             this.processEnchantOrder(this.tag); // Paper
+             this.processText(); // Paper
+             this.getItem().verifyTagAfterLoad(this.tag);
+@@ -585,7 +586,8 @@ public final class ItemStack {
+         nbt.putString("id", minecraftkey == null ? "minecraft:air" : minecraftkey.toString());
+         nbt.putByte("Count", (byte) this.count);
+         if (this.tag != null) {
+-            nbt.put("tag", this.tag.copy());
++            if (dev.kaiijumc.kaiiju.KaiijuConfig.skipUnnecessaryNBTCopy) nbt.put("tag", this.tag); // Abomination
++            else nbt.put("tag", this.tag.copy());
+         }
+ 
+         return nbt;
+@@ -751,6 +753,15 @@ public final class ItemStack {
+         return this.getItem().interactLivingEntity(this, user, entity, hand);
+     }
+ 
++    // Abomination start
++    public ItemStack slimCopy() {
++        if (this.isEmpty()) return ItemStack.EMPTY;
++        ItemStack copy = new ItemStack(this.item, this.count);
++        copy.tag = this.tag;
++        return copy;
++    }
++    // Abomination end
++
+     public ItemStack copy() {
+         // Paper start
+         return this.copy(false);

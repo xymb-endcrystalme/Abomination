@@ -1,0 +1,338 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Tue, 30 Jan 2024 14:56:23 +0100
+Subject: [PATCH] Multithreader cleanups.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 245360b3782975817c043bc2123ca6b1ce8a9a95..27ff447c46e829f8f30efd2a1b53c164320f6536 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -322,6 +322,9 @@ public class KaiijuConfig {
+     // Important for performance. 100 players holding shulkers = a lot of data sent to clients, enough for disconnects.
+     public static boolean dontSendNBTofShulkersHeldInHands = false;
+ 
++    // MultiThreader thread count
++    public static int multiThreaderThreadCount = 8;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -342,6 +345,7 @@ public class KaiijuConfig {
+         shulkerBoxFastMatch = getBoolean("optimizations-dirty-will-change-name.shulker-box-fast-match", shulkerBoxFastMatch);
+         skipUnnecessaryNBTCopy = getBoolean("optimizations-dirty-will-change-name.skip-unnecessary-nbt-copy", skipUnnecessaryNBTCopy);
+         dontSendNBTofShulkersHeldInHands = getBoolean("optimizations-dirty-will-change-name.dont-send-nbt-of-shulkers-held-in-hands", dontSendNBTofShulkersHeldInHands);
++        multiThreaderThreadCount = getInt("optimizations-dirty-will-change-name.multithreader-thread-count", multiThreaderThreadCount);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java b/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java
+index 916ff167cce1df91d32e97f48aa61f48e091ce59..844a2bac6b249652dc6e521e0c511c96e5513609 100644
+--- a/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java
++++ b/src/main/java/io/papermc/paper/chunk/system/RegionizedPlayerChunkLoader.java
+@@ -233,7 +233,7 @@ public class RegionizedPlayerChunkLoader {
+ 
+     public void tick() {
+         TickThread.ensureTickThread("Cannot tick player chunk loader async");
+-        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadChunkSending) xymb.MultiThreader.sendChunkFinish(); // Kaiiju
++        if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadChunkSending) xymb.MultiThreader.SendChunk.finish(); // Kaiiju
+         long currTime = System.nanoTime();
+         for (final ServerPlayer player : new java.util.ArrayList<>(this.world.getLocalPlayers())) { // Folia - region threding
+             final PlayerChunkLoaderData loader = player.chunkLoader;
+diff --git a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+index 3927b650f69eefe797f1a0b9b2f7502b9b20bf22..ae7d07b386cf3fc0b230802d746d9b1f673bf2cb 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
++++ b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+@@ -618,7 +618,7 @@ public final class RegionizedWorldData {
+         } finally {
+             iterator.finishedIterating();
+         }
+-        xymb.MultiThreader.entityTickFinish();
++        xymb.MultiThreader.EntityTick.finish();
+     }
+ 
+     synchronized public void addEntity(final Entity entity) {
+diff --git a/src/main/java/net/minecraft/server/level/ChunkMap.java b/src/main/java/net/minecraft/server/level/ChunkMap.java
+index 57891b3989299f3bed8e09ac54db008ac78a4247..1f30fc8a0c835830ef0db8f44686b5ca355cd6bf 100644
+--- a/src/main/java/net/minecraft/server/level/ChunkMap.java
++++ b/src/main/java/net/minecraft/server/level/ChunkMap.java
+@@ -1118,7 +1118,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+             final long totalThreads = 8;
+             for (int _threadNo = 0 ; _threadNo < totalThreads ; _threadNo++) {
+                 final int threadNo = _threadNo;
+-                xymb.MultiThreader.sendChangesExecute(() -> {
++                xymb.MultiThreader.SendChanges.execute(() -> {
+                     io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
+                     io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
+                     com.destroystokyo.paper.util.maplist.ReferenceList<Entity> loadedEntities = (com.destroystokyo.paper.util.maplist.ReferenceList<Entity>) worldData.getLoadedEntities();
+@@ -1135,7 +1135,7 @@ public class ChunkMap extends ChunkStorage implements ChunkHolder.PlayerProvider
+                     }
+                 });
+             }
+-            xymb.MultiThreader.sendChangesFinish();
++            xymb.MultiThreader.SendChanges.finish();
+             totalEntities = totalEntitiesAtomic.get();
+         } else {
+         // Abomination end
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index 57014218668b11d264bd4ac39bed888f8cbe8438..22ade903fa2b6e14db1742b4017c678a5f8e613c 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -1574,18 +1574,11 @@ public class ServerLevel extends Level implements WorldGenLevel {
+ 
+         // Kaiiju start
+         if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) {
+-final Thread currThread = Thread.currentThread();
+-if (!(currThread instanceof io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner tickThreadRunner)) {
+-    throw new RuntimeException("Wrong thread for entity ticking!!!");
+-}
+-final io.papermc.paper.threadedregions.RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
+-final io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<io.papermc.paper.threadedregions.TickRegions.TickRegionData, io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData> currentRegion = io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegion();
+             if (!(entity instanceof net.minecraft.world.entity.animal.Bee) && (entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
+ //                System.out.println("Multithreading " + entity);
+-                xymb.MultiThreader.entityTickExecute(() -> {
+-io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
+-io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
+-//System.out.println("BBBBB " + io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegionizedWorldData());
++                xymb.MultiThreader.EntityTick.execute(() -> {
++//io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
++//io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
+                 entity.tick();
+                 });
+             } else {
+@@ -1595,7 +1588,6 @@ io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentReg
+         } else {
+             entity.tick();
+         }
+-        //xymb.MultiThreader.entityTickFinish();
+         // Kaiiju end
+ 
+         // Folia start - region threading
+@@ -1609,31 +1601,19 @@ io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentReg
+         }
+         // Folia end - region threading
+         } else {
+-            // Kaiiju start
++        // Kaiiju start
+         if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) {
+-final Thread currThread = Thread.currentThread();
+-if (!(currThread instanceof io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner tickThreadRunner)) {
+-    throw new RuntimeException("Wrong thread for entity ticking!!!");
+-}
+-final io.papermc.paper.threadedregions.RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
+-final io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<io.papermc.paper.threadedregions.TickRegions.TickRegionData, io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData> currentRegion = io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegion();
+             if (!(entity instanceof net.minecraft.world.entity.animal.Bee) && (entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
+-//                System.out.println("Multithreading " + entity);
+-                xymb.MultiThreader.entityTickExecute(() -> {
+-io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
+-io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
+-//System.out.println("BBBBB " + io.papermc.paper.threadedregions.TickRegionScheduler.getCurrentRegionizedWorldData());
++                xymb.MultiThreader.EntityTick.execute(() -> {
+                 entity.inactiveTick();
+                 });
+             } else {
+-//                System.out.println("Skipped2 " + entity.getClass());
+                 entity.inactiveTick();
+             }
+         } else {
+             entity.inactiveTick();
+         }
+         // Kaiiju end
+-//             entity.inactiveTick();
+         } // Paper - EAR 2
+         this.getProfiler().pop();
+         } finally { timer.stopTiming(); profiler.stopTimer(timerId); } // Paper - timings // Folia - timer
+diff --git a/src/main/java/net/minecraft/server/network/PlayerChunkSender.java b/src/main/java/net/minecraft/server/network/PlayerChunkSender.java
+index de48632900f7ec046a9ea353bb399db280ca200f..ecc930a54b0611b7235087e10bea4d078049df43 100644
+--- a/src/main/java/net/minecraft/server/network/PlayerChunkSender.java
++++ b/src/main/java/net/minecraft/server/network/PlayerChunkSender.java
+@@ -94,7 +94,7 @@ public class PlayerChunkSender {
+         final boolean shouldModify = world.chunkPacketBlockController.shouldModify(handler.player, chunk);
+         // Kaiiju start
+         if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadChunkSending) {
+-            xymb.MultiThreader.sendChunkExecute(() -> {
++            xymb.MultiThreader.SendChunk.execute(() -> {
+             handler.send(new ClientboundLevelChunkWithLightPacket(chunk, world.getLightEngine(), (BitSet)null, (BitSet)null, shouldModify));
+             });
+         } else
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 814cd6456d63570ed44259307637b68e5a6cc4b9..e58666a7eaec16f56732231942e88aa0aa7a4cec 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -9,126 +9,74 @@ import java.util.concurrent.ConcurrentLinkedQueue;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import io.papermc.paper.util.TickThread;
+ import com.mojang.logging.LogUtils;
++import io.papermc.paper.threadedregions.TickRegionScheduler;
++import io.papermc.paper.threadedregions.RegionizedWorldData;
++import io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion;
++import io.papermc.paper.threadedregions.TickRegions.TickRegionData;
++import io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData;
+ import org.slf4j.Logger;
+ 
+ public class MultiThreader {
+     static final Logger LOGGER = LogUtils.getLogger();
+ 
+-    private static final int parallelism = 8;
++    private static final int parallelism = dev.kaiijumc.kaiiju.KaiijuConfig.multiThreaderThreadCount;
+ 
+-    private static final Executor sendChunkExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
+-            .setNameFormat("xymb-MultiThreaderHigh-%d")
+-            .setPriority(Thread.NORM_PRIORITY + 1)
+-            .build());
+-    private static AtomicInteger sendChunkRemaining = new AtomicInteger(0);
++    public static class MultiThreaderImpl {
++        private final String name;
+ 
+-    public static void sendChunkExecute(final Runnable runnable) {
+-        sendChunkRemaining.incrementAndGet();
+-        sendChunkExecutor.execute(() -> {
+-            try {
+-                runnable.run();
+-            } catch (Throwable t) {
+-                io.papermc.paper.util.TraceUtil.printStackTrace(t);
+-                LOGGER.error("Exception in multithreaded SendChunk");
+-            }
+-            sendChunkRemaining.decrementAndGet();
+-        });
+-    }
++        private Executor executor = null;
++        private final AtomicInteger remaining = new AtomicInteger(0);
+ 
+-    public static void sendChunkFinish() {
+-        while (sendChunkRemaining.get() > 0) {
+-            waitALittle();
++        private MultiThreaderImpl(String name) {
++            this.name = name;
+         }
+-    }
+ 
+-    private static final Executor entityTickExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
+-        private final AtomicInteger threadNumber = new AtomicInteger(1);
+-
+-        @Override
+-        public Thread newThread(Runnable r) {
+-            Thread thread = new TickThreadRunner(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
+-            thread.setPriority(Thread.NORM_PRIORITY + 1);
+-            ((TickThread)thread).isMultiThreaded = true;
+-            return thread;
++        private synchronized void createExecutor() {
++            if (executor == null) executor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
++                private final AtomicInteger threadNumber = new AtomicInteger(1);
++
++                @Override
++                public Thread newThread(Runnable r) {
++                    Thread thread = new TickThreadRunner(r, "MultiThreader-" + name + "-" + threadNumber.getAndIncrement());
++                    thread.setPriority(Thread.NORM_PRIORITY + 1);
++                    ((TickThread)thread).isMultiThreaded = true;
++                    return thread;
++                }
++            });
+         }
+-    });
+-    private static AtomicInteger entityTickRemaining = new AtomicInteger(0);
+ 
+-    public static void entityTickExecute(final Runnable runnable) {
+-        entityTickRemaining.incrementAndGet();
+-        entityTickExecutor.execute(() -> {
+-            try {
+-                runnable.run();
+-            } catch (Throwable t) {
+-                io.papermc.paper.util.TraceUtil.printStackTrace(t);
+-                LOGGER.error("Exception in multithreaded EntityTick");
++        public void execute(final Runnable runnable) {
++            if (executor == null) createExecutor();
++            final Thread currThread = Thread.currentThread();
++            if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
++                throw new RuntimeException("Wrong thread for MultiThreader");
+             }
+-            entityTickRemaining.decrementAndGet();
+-        });
+-    }
+-
+-    public static void entityTickFinish() {
+-        while (entityTickRemaining.get() > 0) {
+-            waitALittle();
++            final RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
++            final ThreadedRegion<TickRegionData, TickRegionSectionData> currentRegion = TickRegionScheduler.getCurrentRegion();
++
++            remaining.incrementAndGet();
++            executor.execute(() -> {
++                try {
++                    TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
++                    TickRegionScheduler.setCurrentRegion(currentRegion);
++                    runnable.run();
++                } catch (Throwable t) {
++                    io.papermc.paper.util.TraceUtil.printStackTrace(t);
++                    LOGGER.error("Exception in multithreaded " + name);
++                }
++                remaining.decrementAndGet();
++            });
+         }
+-    }
+-
+-    private static final Executor sendChangesExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
+-        private final AtomicInteger threadNumber = new AtomicInteger(1);
+ 
+-        @Override
+-        public Thread newThread(Runnable r) {
+-            Thread thread = new TickThreadRunner(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
+-            thread.setPriority(Thread.NORM_PRIORITY + 1);
+-            ((TickThread)thread).isMultiThreaded = true;
+-            return thread;
++        public void finish() {
++            if (executor == null) createExecutor();
++            while (remaining.get() > 0) waitALittle();
+         }
+-    });
+-    private static AtomicInteger sendChangesRemaining = new AtomicInteger(0);
+-
+-    public static void sendChangesExecute(final Runnable runnable) {
+-        sendChangesRemaining.incrementAndGet();
+-        sendChangesExecutor.execute(() -> {
+-            try {
+-                runnable.run();
+-            } catch (Throwable t) {
+-                io.papermc.paper.util.TraceUtil.printStackTrace(t);
+-                LOGGER.error("Exception in multithreaded SendChanges");
+-            }
+-            sendChangesRemaining.decrementAndGet();
+-        });
+     }
+ 
+-    public static void sendChangesFinish() {
+-        while (sendChangesRemaining.get() > 0) {
+-            waitALittle();
+-        }
+-    }
+-
+-    private static final Executor serverboundExecutor = Executors.newFixedThreadPool(parallelism, new ThreadFactoryBuilder()
+-            .setNameFormat("xymb-MultiThreaderHigh-%d")
+-            .setPriority(Thread.NORM_PRIORITY + 1)
+-            .build());
+-    private static AtomicInteger serverboundRemaining = new AtomicInteger(0);
+-
+-    public static void serverboundExecute(final Runnable runnable) {
+-        serverboundRemaining.incrementAndGet();
+-        serverboundExecutor.execute(() -> {
+-            try {
+-                runnable.run();
+-            } catch (Throwable t) {
+-                io.papermc.paper.util.TraceUtil.printStackTrace(t);
+-                LOGGER.error("Exception in multithreaded Serverbound");
+-            }
+-            serverboundRemaining.decrementAndGet();
+-        });
+-    }
+-
+-    public static void serverboundFinish() {
+-        while (serverboundRemaining.get() > 0) {
+-            waitALittle();
+-        }
+-    }
++    final public static MultiThreaderImpl SendChunk = new MultiThreaderImpl("SendChunk");
++    final public static MultiThreaderImpl EntityTick = new MultiThreaderImpl("EntityTick");
++    final public static MultiThreaderImpl SendChanges = new MultiThreaderImpl("SendChanges");
+ 
+     private static void waitALittle() {
+         if (!dev.kaiijumc.kaiiju.KaiijuConfig.flameGraphDebugMode) java.util.concurrent.locks.LockSupport.parkNanos(10000);

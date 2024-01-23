@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Wed, 31 Jan 2024 04:34:19 +0100
+Subject: [PATCH] WIP - faster NaturalSpawner algorithm part 2.
+
+
+diff --git a/src/main/java/net/minecraft/world/level/NaturalSpawner.java b/src/main/java/net/minecraft/world/level/NaturalSpawner.java
+index 6f3c1a421a51efd29c60afe93d621eb0a1ee60ca..5ee456c36b9e90824d536bd383996f9ad11db9a5 100644
+--- a/src/main/java/net/minecraft/world/level/NaturalSpawner.java
++++ b/src/main/java/net/minecraft/world/level/NaturalSpawner.java
+@@ -1,10 +1,6 @@
+ package net.minecraft.world.level;
+ 
+-import com.google.common.collect.ArrayListMultimap;
+-import com.google.common.collect.ListMultimap;
+ import com.mojang.logging.LogUtils;
+-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+ import it.unimi.dsi.fastutil.objects.Object2IntMap;
+ import it.unimi.dsi.fastutil.objects.Object2IntMaps;
+ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+@@ -133,9 +129,8 @@ public final class NaturalSpawner {
+         }
+ 
+         } else {
+-
+-            Long2ObjectMap<java.util.List<Entity>> entitiesByPosition = new Long2ObjectOpenHashMap<>();
+-
++            com.destroystokyo.paper.util.maplist.ReferenceList<Entity> entityList = (com.destroystokyo.paper.util.maplist.ReferenceList<Entity>)entities;
++//            int size = entityList.size();
+             while (iterator.hasNext()) {
+                 Entity entity = (Entity) iterator.next();
+ 
+@@ -159,47 +154,41 @@ public final class NaturalSpawner {
+                         //return;
+                     }
+                     // Paper end
+-                    BlockPos blockposition = entity.blockPosition();
+-                    long pos = ChunkPos.asLong(blockposition);
+-                    entitiesByPosition.computeIfAbsent(pos, k -> new java.util.ArrayList<>()).add(entity);
++                    final BlockPos blockposition = entity.blockPosition();
++                    Runnable r = () -> {
++                        chunkSource.query(ChunkPos.asLong(blockposition), (chunk) -> {
++                            // LevelChunk chunk
++                            MobSpawnSettings.MobSpawnCost biomesettingsmobs_b = NaturalSpawner.getRoughBiome(blockposition, chunk).getMobSettings().getMobSpawnCost(entity.getType());
++
++                            if (biomesettingsmobs_b != null) {
++                                synchronized(spawnercreatureprobabilities) {
++                                spawnercreatureprobabilities.addCharge(entity.blockPosition(), biomesettingsmobs_b.charge());
++                                }
++                            }
++
++                            if (densityCapper != null && entity instanceof Mob) { // Paper
++                                synchronized(densityCapper) {
++                                densityCapper.addMob(chunk.getPos(), enumcreaturetype);
++                                }
++                            }
++                            synchronized(object2intopenhashmap) {
++                            object2intopenhashmap.addTo(enumcreaturetype, 1);
++                            }
++                            // Paper start
++                            if (countMobs) {
++                                synchronized(chunk.level.getChunkSource().chunkMap) {
++                                chunk.level.getChunkSource().chunkMap.updatePlayerMobTypeMap(entity);
++                                }
++                            }
++                            // Paper end
++                        });
++                    };
++                    xymb.MultiThreader.NaturalSpawner.execute(r);
+                 }
+             }
+ 
+-            final java.util.concurrent.atomic.AtomicInteger total = new java.util.concurrent.atomic.AtomicInteger(0);
+-            final java.util.concurrent.atomic.AtomicInteger duplicateCount = new java.util.concurrent.atomic.AtomicInteger(0);
+-
+-            for (Long2ObjectMap.Entry<java.util.List<Entity>> entry : entitiesByPosition.long2ObjectEntrySet()) {
+-                long pos = entry.getLongKey();
+-                java.util.List<Entity> entitiesAtPos = entry.getValue();
+-                // Iterate over entitiesAtPos or do something with them
+-                chunkSource.query(pos, (chunk) -> {
+-                    // LevelChunk chunk
+-                    duplicateCount.getAndAdd(entitiesAtPos.size() - 1);
+-                    for (Entity entity: entitiesAtPos) {
+-                        total.getAndIncrement();
+-                        BlockPos blockposition = entity.blockPosition();
+-                        MobCategory enumcreaturetype = entity.getType().getCategory();
+-                        MobSpawnSettings.MobSpawnCost biomesettingsmobs_b = NaturalSpawner.getRoughBiome(blockposition, chunk).getMobSettings().getMobSpawnCost(entity.getType());
+-
+-                        if (biomesettingsmobs_b != null) {
+-                            spawnercreatureprobabilities.addCharge(entity.blockPosition(), biomesettingsmobs_b.charge());
+-                        }
+-
+-                        if (densityCapper != null && entity instanceof Mob) { // Paper
+-                            densityCapper.addMob(chunk.getPos(), enumcreaturetype);
+-                        }
+-
+-                        object2intopenhashmap.addTo(enumcreaturetype, 1);
+-                        // Paper start
+-                        if (countMobs) {
+-                            chunk.level.getChunkSource().chunkMap.updatePlayerMobTypeMap(entity);
+-                        }
+-                        // Paper end
+-                    }
+-                });
+-            }
+-            System.out.println("Duplicates " + total.get() + " " + duplicateCount.get());
+         }
++        xymb.MultiThreader.NaturalSpawner.finish();
+ 
+         return new NaturalSpawner.SpawnState(spawningChunkCount, object2intopenhashmap, spawnercreatureprobabilities, densityCapper);
+     }
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 5dc8cf9585a6ade7b21430c475089772b0f42687..47a5622b807423179dd1e22fe55b2d317d639809 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -88,6 +88,7 @@ public class MultiThreader {
+     final public static MultiThreaderImpl SendChunk = new MultiThreaderImpl("SendChunk");
+     final public static MultiThreaderImpl EntityTick = new MultiThreaderImpl("EntityTick");
+     final public static MultiThreaderImpl SendChanges = new MultiThreaderImpl("SendChanges");
++    final public static MultiThreaderImpl NaturalSpawner = new MultiThreaderImpl("NaturalSpawner");
+ 
+     private static void waitALittle() {
+         if (!dev.kaiijumc.kaiiju.KaiijuConfig.flameGraphDebugMode) java.util.concurrent.locks.LockSupport.parkNanos(10000);

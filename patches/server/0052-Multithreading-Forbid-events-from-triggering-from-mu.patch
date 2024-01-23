@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Tue, 30 Jan 2024 10:02:23 +0100
+Subject: [PATCH] Multithreading: Forbid events from triggering from
+ multithreaded code.
+
+
+diff --git a/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java b/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
+index 7ce9ebba8ce304d1f3f21d4f15ee5f3560d7700b..785e76c416d6df34f165b5fbbc77cbe04090843b 100644
+--- a/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
++++ b/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
+@@ -34,6 +34,8 @@ class PaperEventManager {
+         this.server = server;
+     }
+ 
++    private static final it.unimi.dsi.fastutil.objects.ObjectOpenHashSet<Class<?>> printedEventClasses = new it.unimi.dsi.fastutil.objects.ObjectOpenHashSet<>(); // Abomination
++
+     // SimplePluginManager
+     public void callEvent(@NotNull Event event) {
+         if (event.isAsynchronous() && this.server.isPrimaryThread()) {
+@@ -41,6 +43,17 @@ class PaperEventManager {
+         } else if (!event.isAsynchronous() && !this.server.isPrimaryThread() && !this.server.isStopping()) {
+             throw new IllegalStateException(event.getEventName() + " may only be triggered synchronously.");
+         }
++        // Abomination start
++        Thread thread = Thread.currentThread();
++        if (thread instanceof io.papermc.paper.util.TickThread tickThread) {
++            if (tickThread.isMultiThreaded) {
++                if (printedEventClasses.add(event.getClass())) {
++                    io.papermc.paper.util.TraceUtil.dumpTraceForThread(event.getClass().getName() + " triggered from multithreading. Event won't trigger in plugins.");
++                    com.mojang.logging.LogUtils.getLogger().error(event.getClass().getName() + " triggered from multithreading. Event won't trigger in plugins.");
++                }
++            }
++        }
++        // Abomination end
+ 
+         HandlerList handlers = event.getHandlers();
+         RegisteredListener[] listeners = handlers.getRegisteredListeners();
+diff --git a/src/main/java/io/papermc/paper/util/TickThread.java b/src/main/java/io/papermc/paper/util/TickThread.java
+index 9e1149e0cd9eb098d2bee785501f2c779a2a9ed5..42b2169cb35c0a25bd72c227e55d7d143f3ce472 100644
+--- a/src/main/java/io/papermc/paper/util/TickThread.java
++++ b/src/main/java/io/papermc/paper/util/TickThread.java
+@@ -254,4 +254,6 @@ public class TickThread extends Thread {
+             return ((entity.hasNullCallback() || entity.isRemoved())) && isTickThreadFor((ServerLevel)level, entity.chunkPosition());
+         }
+     }
++
++    public boolean isMultiThreaded = false; // Abomination
+ }
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 3af138e9157b0bb655f8509d0e93777d46f15d0f..618afe7892efe1b0bc2450ac6d2752189182755c 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -82,6 +82,7 @@ private static final Executor entityTickExecutor = Executors.newFixedThreadPool(
+ //        Thread thread = new TickThread(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
+         Thread thread = new TickThreadRunner(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
+         thread.setPriority(Thread.NORM_PRIORITY + 1);
++        ((TickThread)thread).isMultiThreaded = true;
+         return thread;
+     }
+ });
+@@ -110,6 +111,7 @@ private static final Executor sendChangesExecutor = Executors.newFixedThreadPool
+ //        Thread thread = new TickThread(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
+         Thread thread = new TickThreadRunner(r, "xymb-MultiThreaderHigh-" + threadNumber.getAndIncrement());
+         thread.setPriority(Thread.NORM_PRIORITY + 1);
++        ((TickThread)thread).isMultiThreaded = true;
+         return thread;
+     }
+ });

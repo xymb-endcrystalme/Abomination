@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Tue, 30 Jan 2024 16:25:13 +0100
+Subject: [PATCH] Multithreader: Improvements.
+
+
+diff --git a/src/main/java/io/papermc/paper/threadedregions/TickRegions.java b/src/main/java/io/papermc/paper/threadedregions/TickRegions.java
+index 2ad25dd345ab42125d456f2b9cf67d8c4515c8b7..1d7b00c3862741cb37b191427968ef1ef2ea3993 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/TickRegions.java
++++ b/src/main/java/io/papermc/paper/threadedregions/TickRegions.java
+@@ -59,6 +59,7 @@ public final class TickRegions implements ThreadedRegionizer.RegionCallbacks<Tic
+ 
+         scheduler = new TickRegionScheduler(tickThreads);
+         LOGGER.info("Regionised ticking is enabled with " + tickThreads + " tick threads");
++        xymb.MultiThreader.configureTickThreads(tickThreads);
+     }
+ 
+     @Override
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index e58666a7eaec16f56732231942e88aa0aa7a4cec..07ca37a1b6c2e97807960a8f917b132969f8667d 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -20,6 +20,11 @@ public class MultiThreader {
+     static final Logger LOGGER = LogUtils.getLogger();
+ 
+     private static final int parallelism = dev.kaiijumc.kaiiju.KaiijuConfig.multiThreaderThreadCount;
++    private static int tickThreads = 666;
++
++    public static void configureTickThreads(int tickThreads) {
++        MultiThreader.tickThreads = tickThreads;
++    }
+ 
+     public static class MultiThreaderImpl {
+         private final String name;
+@@ -71,6 +76,10 @@ public class MultiThreader {
+         public void finish() {
+             if (executor == null) createExecutor();
+             while (remaining.get() > 0) waitALittle();
++            final Thread currThread = Thread.currentThread();
++            if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
++                throw new RuntimeException("Wrong thread for MultiThreader");
++            }
+         }
+     }
+ 
+@@ -81,4 +90,9 @@ public class MultiThreader {
+     private static void waitALittle() {
+         if (!dev.kaiijumc.kaiiju.KaiijuConfig.flameGraphDebugMode) java.util.concurrent.locks.LockSupport.parkNanos(10000);
+     }
++
++    private static int regionThreadNo() {
++        final Thread currThread = Thread.currentThread();
++        return ((TickThread)currThread).id % tickThreads;
++    }
+ }
+\ No newline at end of file

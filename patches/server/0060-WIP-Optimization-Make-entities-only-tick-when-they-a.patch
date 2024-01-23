@@ -1,0 +1,337 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sun, 4 Feb 2024 23:40:09 +0100
+Subject: [PATCH] WIP Optimization: Make entities only tick when they are far
+ away from each other.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 1eddd07d9bb91a3707bf40f920226493748bd897..4519f432a06cf807365fc6e361885fc584144e4b 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -66,6 +66,7 @@ public class KaiijuConfig {
+         set("config-version", 1);
+ 
+         readConfig(KaiijuConfig.class, null, setup);
++        xymb.MultiThreader.configureParallelism(KaiijuConfig.multiThreaderThreadCount);
+     }
+ 
+     protected static void log(String s) {
+@@ -331,6 +332,9 @@ public class KaiijuConfig {
+     // Throttle natural spawning to once every 10 ticks
+     public static boolean throttleMobSpawningDuringRuntime = false;
+ 
++    // For performance profiling only, disable for official release
++    public static boolean testPerformanceOfCoordAwareEntityMultithreading = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -354,6 +358,7 @@ public class KaiijuConfig {
+         multiThreaderThreadCount = getInt("optimizations-dirty-will-change-name.multithreader-thread-count", multiThreaderThreadCount);
+         fasterNaturalSpawnerAlgorithm = getBoolean("optimizations-dirty-will-change-name.faster-natural-spawner-algorithm", fasterNaturalSpawnerAlgorithm);
+         throttleMobSpawningDuringRuntime = getBoolean("optimizations-dirty-will-change-name.throttle-mob-spawning-during-runtime", throttleMobSpawningDuringRuntime);
++        testPerformanceOfCoordAwareEntityMultithreading = getBoolean("optimizations-dirty-will-change-name.test-performance-of-coord-aware-entity-multithreading", testPerformanceOfCoordAwareEntityMultithreading);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+index a0dfc3c32b5b2a3bad6ae70399ce243724126448..30c361e47ca5c4b92760838d959d3aa2da2b4006 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
++++ b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+@@ -610,7 +610,11 @@ public final class RegionizedWorldData {
+         TickRegions.RegionStats.updateCurrentRegion();
+     }
+ 
++    double totalEntityTick = 0; // Abomination
++    int entityTickCount = 0; // Abomination
++
+     public void forEachTickingEntity(final Consumer<Entity> action) {
++        long start = System.nanoTime(); // Abomination
+         final IteratorSafeOrderedReferenceSet.Iterator<Entity> iterator = this.entityTickList.iterator();
+         try {
+             while (iterator.hasNext()) {
+@@ -619,7 +623,17 @@ public final class RegionizedWorldData {
+         } finally {
+             iterator.finishedIterating();
+         }
++        // Abomination start
+         xymb.MultiThreader.EntityTick.finish();
++        xymb.MultiThreader.EntityTickThreaded.finish();
++        totalEntityTick += (System.nanoTime() - start) / 1000000.;
++        entityTickCount++;
++        if (entityTickCount >= 20) {
++            //System.out.println("Entity ticks " + totalEntityTick / entityTickCount);
++            totalEntityTick = 0;
++            entityTickCount = 0;
++        }
++        // Abomination end
+     }
+ 
+     synchronized public void addEntity(final Entity entity) {
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index 22ade903fa2b6e14db1742b4017c678a5f8e613c..9a3b40c86d372ab8fc6415f22301636bc8869d27 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -1574,13 +1574,11 @@ public class ServerLevel extends Level implements WorldGenLevel {
+ 
+         // Kaiiju start
+         if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) {
+-            if (!(entity instanceof net.minecraft.world.entity.animal.Bee) && (entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
+-//                System.out.println("Multithreading " + entity);
+-                xymb.MultiThreader.EntityTick.execute(() -> {
+-//io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
+-//io.papermc.paper.threadedregions.TickRegionScheduler.setCurrentRegion(currentRegion);
+-                entity.tick();
+-                });
++            if ((entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
++                if (!dev.kaiijumc.kaiiju.KaiijuConfig.testPerformanceOfCoordAwareEntityMultithreading)
++                    xymb.MultiThreader.EntityTick.execute(() -> {entity.tick();});
++                else
++                    xymb.MultiThreader.EntityTickThreaded.execute(() -> {entity.tick();}, entity.getBlockX(), entity.getBlockZ());
+             } else {
+ //                System.out.println("Skipped2 " + entity.getClass());
+                 entity.tick();
+@@ -1603,10 +1601,11 @@ public class ServerLevel extends Level implements WorldGenLevel {
+         } else {
+         // Kaiiju start
+         if (dev.kaiijumc.kaiiju.KaiijuConfig.multithreadSomeEntities) {
+-            if (!(entity instanceof net.minecraft.world.entity.animal.Bee) && (entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
+-                xymb.MultiThreader.EntityTick.execute(() -> {
+-                entity.inactiveTick();
+-                });
++            if ((entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
++                if (!dev.kaiijumc.kaiiju.KaiijuConfig.testPerformanceOfCoordAwareEntityMultithreading)
++                    xymb.MultiThreader.EntityTick.execute(() -> {entity.inactiveTick();});
++                else
++                    xymb.MultiThreader.EntityTickThreaded.execute(() -> {entity.inactiveTick();}, entity.getBlockX(), entity.getBlockZ());
+             } else {
+                 entity.inactiveTick();
+             }
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index ae1329452878cf26f16b09d1427599b0c2ee2805..89ee33eec253852ba0b4627c8244cbd6532aebae 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -2,10 +2,12 @@ package xymb;
+ 
+ import com.google.common.util.concurrent.ThreadFactoryBuilder;
+ import io.papermc.paper.threadedregions.TickRegionScheduler.TickThreadRunner;
++import java.util.ArrayList;
+ import java.util.concurrent.ThreadFactory;
+ import java.util.concurrent.Executor;
+ import java.util.concurrent.Executors;
+ import java.util.concurrent.ConcurrentLinkedQueue;
++import java.util.concurrent.ThreadLocalRandom;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import io.papermc.paper.util.TickThread;
+ import com.mojang.logging.LogUtils;
+@@ -19,7 +21,7 @@ import org.slf4j.Logger;
+ public class MultiThreader {
+     static final Logger LOGGER = LogUtils.getLogger();
+ 
+-    private static final int parallelism = dev.kaiijumc.kaiiju.KaiijuConfig.multiThreaderThreadCount;
++    private static int parallelism = -1;
+     private static int tickThreads = 666;
+ 
+     public static int getThreadCount() {
+@@ -30,6 +32,10 @@ public class MultiThreader {
+         MultiThreader.tickThreads = tickThreads;
+     }
+ 
++    public static void configureParallelism(int parallelism) {
++        if (MultiThreader.parallelism == -1) MultiThreader.parallelism = parallelism;
++    }
++
+     public static class MultiThreaderImpl {
+         private final String name;
+ 
+@@ -42,6 +48,7 @@ public class MultiThreader {
+ 
+         private synchronized void createExecutor() {
+             if (executor == null) {
++                System.out.println("Parallelism " + parallelism);
+                 executor = Executors.newFixedThreadPool(parallelism, new ThreadFactory() {
+                     private final AtomicInteger threadNumber = new AtomicInteger(1);
+ 
+@@ -89,13 +96,181 @@ public class MultiThreader {
+         }
+     }
+ 
++    public static class MultiThreaderXZCoordAware {
++        private final String name;
++        private final int safeDistance;
++
++        private Thread executor[] = null;
++        volatile private int entitiesCounts[] = null;
++        volatile private short entitiesWIPCounts[] = null;
++        volatile private ArrayList<Coordinate> entityList[] = null;
++        volatile private int wipEntitiesXZ[] = null;
++
++        int hits = 0, misses = 0;
++
++        private static record Coordinate(int x, int z, Runnable r) {}
++
++        private MultiThreaderXZCoordAware(String name, int safeDistance) {
++            this.name = name;
++            this.safeDistance = safeDistance;
++        }
++
++        private static void threadRun(MultiThreaderXZCoordAware self, int threadNo) {
++            System.out.println("Starting thread " + self.name + " " + threadNo);
++            boolean iterationFailed = false;
++            nextiteration:
++            while (true) {
++                if (iterationFailed) {
++                    iterationFailed = false;
++                    java.util.concurrent.locks.LockSupport.parkNanos(1000);
++                }
++                int random = ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE);
++                int total = 0;
++                int bucket = 0;
++                int entityToTick = -1;
++                Coordinate selectedEntity = null;
++                synchronized(self.entitiesCounts) {
++                    for (int i = 0 ; i < tickThreads ; i++)
++                        total += self.entitiesCounts[i];
++                    if (total != 0) {
++                        random %= total;
++                        int inBucket = random;
++                        for (bucket = 0 ; bucket < tickThreads ; bucket++) {
++                            if (inBucket < self.entitiesCounts[bucket]) break;
++                            else inBucket -= self.entitiesCounts[bucket];
++                        }
++    //                    System.out.println("Bucket " + bucket + " inBucket " + inBucket + " total " + total);
++    //                    for (int i = 0 ; i < tickThreads ; i++) {
++    //                        System.out.println("Bucket " + i + " - " + self.entityList[bucket].size() + " " + self.entitiesCounts[bucket]);
++    //                    }
++                        selectedEntity = self.entityList[bucket].get(inBucket);
++                        int canonicalX = selectedEntity.x + (bucket / 16) * (1 << 26);
++                        int canonicalZ = selectedEntity.z + (bucket % 16) * (1 << 26);
++                        for (int i = 0 ; i < parallelism ; i++) {
++                            int wipX = self.wipEntitiesXZ[i * 2 + 0];
++                            int wipZ = self.wipEntitiesXZ[i * 2 + 1];
++
++                            if (Math.abs(canonicalX - wipX) < self.safeDistance && Math.abs(canonicalZ - wipZ) < self.safeDistance) {
++                                self.misses += 1;
++                                iterationFailed = true;
++                                continue nextiteration;
++                            }
++                        }
++                        self.wipEntitiesXZ[threadNo * 2 + 0] = canonicalX;
++                        self.wipEntitiesXZ[threadNo * 2 + 1] = canonicalZ;
++                        int size = self.entityList[bucket].size();
++    //                    System.out.println("Removing size " + size + " removing " + (size - 1));
++                        if (inBucket != size - 1)
++                            self.entityList[bucket].set(inBucket, self.entityList[bucket].remove(size - 1));
++                        else
++                            self.entityList[bucket].remove(inBucket);
++                        self.entitiesCounts[bucket]--;
++                        self.entitiesWIPCounts[bucket]++;
++                        self.hits += 1;
++                    }
++                }
++                if (selectedEntity == null) {
++                    java.util.concurrent.locks.LockSupport.parkNanos(10000);
++                    continue;
++                } else {
++                    //System.out.println("Ticking " + selectedEntity);
++                    selectedEntity.r.run();
++                    synchronized(self.entitiesCounts) {
++                        self.entitiesWIPCounts[bucket]--;
++                        self.wipEntitiesXZ[threadNo * 2 + 0] = Integer.MAX_VALUE;
++                        self.wipEntitiesXZ[threadNo * 2 + 1] = Integer.MAX_VALUE;
++                    }
++                }
++            }
++        }
++
++        private synchronized void createExecutor() {
++            if (executor == null) {
++                executor = new Thread[parallelism];
++                entitiesCounts = new int[tickThreads];
++                entitiesWIPCounts = new short[tickThreads];
++                entityList = new ArrayList[parallelism];
++                for (int i = 0 ; i < parallelism ; i++)
++                    entityList[i] = new ArrayList(1024 * 128);
++                wipEntitiesXZ = new int[parallelism * 2];
++                for (int i = 0 ; i < parallelism ; i++) {
++                    wipEntitiesXZ[i * 2] = Integer.MAX_VALUE;
++                    wipEntitiesXZ[i * 2 + 1] = Integer.MAX_VALUE;
++                }
++                for (int i = 0 ; i < parallelism ; i++) {
++                    final int threadNo = i;
++                    Runnable r = () -> {
++                        threadRun(this, threadNo);
++                    };
++                    executor[i] = new TickThreadRunner(r, "MultiThreader-" + name + "-" + (threadNo + 1));
++                    executor[i].setPriority(Thread.NORM_PRIORITY + 1);
++                    executor[i].start();
++                }
++            }
++        }
++
++        public void execute(final Runnable runnable, int x, int z) {
++            if (executor == null) createExecutor();
++//            coordinates
++            final Thread currThread = Thread.currentThread();
++            if (!(currThread instanceof TickThreadRunner tickThreadRunner)) {
++                throw new RuntimeException("Wrong thread for MultiThreader");
++            }
++            final RegionizedWorldData currentTickingWorldRegionizedData = tickThreadRunner.currentTickingWorldRegionizedData;
++            final ThreadedRegion<TickRegionData, TickRegionSectionData> currentRegion = TickRegionScheduler.getCurrentRegion();
++
++            final int threadNo = regionThreadNo();
++            Runnable r = () -> {
++                try {
++                    TickRegionScheduler.setCurrentRegionizedWorldData(currentTickingWorldRegionizedData);
++                    TickRegionScheduler.setCurrentRegion(currentRegion);
++                    runnable.run();
++                } catch (Throwable t) {
++                    io.papermc.paper.util.TraceUtil.printStackTrace(t);
++                    LOGGER.error("Exception in multithreaded " + name);
++                }
++            };
++            synchronized(this.entitiesCounts) {
++                this.entitiesCounts[threadNo]++;
++                this.entityList[threadNo].add(new Coordinate(x, z, r));
++            }
++        }
++
++        public void finish() {
++            if (executor == null) createExecutor();
++            final int threadNo = regionThreadNo();
++            while (true) {
++                if (this.entitiesCounts[threadNo] == 0 && this.entitiesWIPCounts[threadNo] == 0) {
++                    synchronized(this.entitiesCounts) {
++                        if (this.entitiesCounts[threadNo] == 0 && this.entitiesWIPCounts[threadNo] == 0) break;
++                    }
++                }
++//                System.out.println("Noice! " + entitiesCounts[threadNo]);
++                waitALittle();
++            }
++            int hits, misses;
++            synchronized(this.entitiesCounts) {
++                hits = this.hits;
++                misses = this.misses;
++                this.hits = 0;
++                this.misses = 0;
++            }
++//            System.out.println("MultiThtreaderXZ - hits: " + hits + " misses:" + misses);
++        }
++    }
++
+     final public static MultiThreaderImpl SendChunk = new MultiThreaderImpl("SendChunk");
+     final public static MultiThreaderImpl EntityTick = new MultiThreaderImpl("EntityTick");
++    final public static MultiThreaderXZCoordAware EntityTickThreaded = new MultiThreaderXZCoordAware("EntityTickThreaded", 32);
+     final public static MultiThreaderImpl SendChanges = new MultiThreaderImpl("SendChanges");
+     final public static MultiThreaderImpl NaturalSpawner = new MultiThreaderImpl("NaturalSpawner");
+ 
+     private static void waitALittle() {
+         if (!dev.kaiijumc.kaiiju.KaiijuConfig.flameGraphDebugMode) java.util.concurrent.locks.LockSupport.parkNanos(10000);
++        else {
++            long start = System.nanoTime();
++            while (System.nanoTime() - start < 10000) ;
++        }
+     }
+ 
+     private static int regionThreadNo() {

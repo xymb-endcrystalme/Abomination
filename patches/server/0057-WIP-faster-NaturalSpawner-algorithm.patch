@@ -1,0 +1,169 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Tue, 30 Jan 2024 20:36:56 +0100
+Subject: [PATCH] WIP - faster NaturalSpawner algorithm.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 27ff447c46e829f8f30efd2a1b53c164320f6536..28a9e1ed94a89348aa10cf773f5926a8fd17222f 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -325,6 +325,9 @@ public class KaiijuConfig {
+     // MultiThreader thread count
+     public static int multiThreaderThreadCount = 8;
+ 
++    // Faster NaturalSpawner algorithm
++    public static boolean fasterNaturalSpawnerAlgorithm = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -346,6 +349,7 @@ public class KaiijuConfig {
+         skipUnnecessaryNBTCopy = getBoolean("optimizations-dirty-will-change-name.skip-unnecessary-nbt-copy", skipUnnecessaryNBTCopy);
+         dontSendNBTofShulkersHeldInHands = getBoolean("optimizations-dirty-will-change-name.dont-send-nbt-of-shulkers-held-in-hands", dontSendNBTofShulkersHeldInHands);
+         multiThreaderThreadCount = getInt("optimizations-dirty-will-change-name.multithreader-thread-count", multiThreaderThreadCount);
++        fasterNaturalSpawnerAlgorithm = getBoolean("optimizations-dirty-will-change-name.faster-natural-spawner-algorithm", fasterNaturalSpawnerAlgorithm);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/net/minecraft/server/level/ServerChunkCache.java b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+index 4e62fdb7aacabae7aff582b95f105cd085271359..5c7680471f4eabaed69b0a2f9d9886d1a82830f6 100644
+--- a/src/main/java/net/minecraft/server/level/ServerChunkCache.java
++++ b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+@@ -488,6 +488,7 @@ public class ServerChunkCache extends ChunkSource {
+                 int naturalSpawnChunkCount = k;
+                 NaturalSpawner.SpawnState spawnercreature_d = null; // moved down
+                 profiler.startTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.MOB_SPAWN_ENTITY_COUNT); try { // Folia - profiler
++long start = System.nanoTime();
+                 if ((this.spawnFriendlies || this.spawnEnemies) && this.level.paperConfig().entities.spawning.perPlayerMobSpawns) { // don't count mobs when animals and monsters are disabled
+                     // re-set mob counts
+                     for (ServerPlayer player : this.level.getLocalPlayers()) { // Folia - region threading
+@@ -509,6 +510,7 @@ public class ServerChunkCache extends ChunkSource {
+                     if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableMobSpawningDuringRuntime) // Kaiiju
+                     spawnercreature_d = NaturalSpawner.createState(naturalSpawnChunkCount, regionizedWorldData.getLoadedEntities(), this::getFullChunk, !this.level.paperConfig().entities.spawning.perPlayerMobSpawns ? new LocalMobCapCalculator(this.chunkMap) : null, false); // Folia - region threading - note: function only cares about loaded entities, doesn't need all
+                 }
++System.out.println("NaturalSpawner " + ((System.nanoTime() - start) / 1000000.));
+                 } finally { profiler.stopTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.MOB_SPAWN_ENTITY_COUNT); } // Folia - profiler
+                 // Paper end
+                 this.level.timings.countNaturalMobs.stopTiming(); // Paper - timings
+diff --git a/src/main/java/net/minecraft/world/level/NaturalSpawner.java b/src/main/java/net/minecraft/world/level/NaturalSpawner.java
+index 5caca2a34849189ea42d2699f6d8672e0d7251cb..6f3c1a421a51efd29c60afe93d621eb0a1ee60ca 100644
+--- a/src/main/java/net/minecraft/world/level/NaturalSpawner.java
++++ b/src/main/java/net/minecraft/world/level/NaturalSpawner.java
+@@ -1,6 +1,10 @@
+ package net.minecraft.world.level;
+ 
++import com.google.common.collect.ArrayListMultimap;
++import com.google.common.collect.ListMultimap;
+ import com.mojang.logging.LogUtils;
++import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
++import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+ import it.unimi.dsi.fastutil.objects.Object2IntMap;
+ import it.unimi.dsi.fastutil.objects.Object2IntMaps;
+ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+@@ -80,6 +84,7 @@ public final class NaturalSpawner {
+         Object2IntOpenHashMap<MobCategory> object2intopenhashmap = new Object2IntOpenHashMap();
+         Iterator iterator = entities.iterator();
+ 
++        if (!dev.kaiijumc.kaiiju.KaiijuConfig.fasterNaturalSpawnerAlgorithm) {
+         while (iterator.hasNext()) {
+             Entity entity = (Entity) iterator.next();
+ 
+@@ -88,6 +93,7 @@ public final class NaturalSpawner {
+ 
+                 if (entityinsentient.isPersistenceRequired() || entityinsentient.requiresCustomPersistence()) {
+                     continue;
++                    //return;
+                 }
+             }
+ 
+@@ -99,11 +105,13 @@ public final class NaturalSpawner {
+                     !(entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.NATURAL ||
+                         entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CHUNK_GEN)) {
+                     continue;
++                    //return;
+                 }
+                 // Paper end
+                 BlockPos blockposition = entity.blockPosition();
+ 
+                 chunkSource.query(ChunkPos.asLong(blockposition), (chunk) -> {
++                    // LevelChunk chunk
+                     MobSpawnSettings.MobSpawnCost biomesettingsmobs_b = NaturalSpawner.getRoughBiome(blockposition, chunk).getMobSettings().getMobSpawnCost(entity.getType());
+ 
+                     if (biomesettingsmobs_b != null) {
+@@ -124,6 +132,75 @@ public final class NaturalSpawner {
+             }
+         }
+ 
++        } else {
++
++            Long2ObjectMap<java.util.List<Entity>> entitiesByPosition = new Long2ObjectOpenHashMap<>();
++
++            while (iterator.hasNext()) {
++                Entity entity = (Entity) iterator.next();
++
++                if (entity instanceof Mob) {
++                    Mob entityinsentient = (Mob) entity;
++
++                    if (entityinsentient.isPersistenceRequired() || entityinsentient.requiresCustomPersistence()) {
++                        continue;
++                        //return;
++                    }
++                }
++
++                MobCategory enumcreaturetype = entity.getType().getCategory();
++
++                if (enumcreaturetype != MobCategory.MISC) {
++                    // Paper start - Only count natural spawns
++                    if (!entity.level().paperConfig().entities.spawning.countAllMobsForSpawning &&
++                        !(entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.NATURAL ||
++                            entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CHUNK_GEN)) {
++                        continue;
++                        //return;
++                    }
++                    // Paper end
++                    BlockPos blockposition = entity.blockPosition();
++                    long pos = ChunkPos.asLong(blockposition);
++                    entitiesByPosition.computeIfAbsent(pos, k -> new java.util.ArrayList<>()).add(entity);
++                }
++            }
++
++            final java.util.concurrent.atomic.AtomicInteger total = new java.util.concurrent.atomic.AtomicInteger(0);
++            final java.util.concurrent.atomic.AtomicInteger duplicateCount = new java.util.concurrent.atomic.AtomicInteger(0);
++
++            for (Long2ObjectMap.Entry<java.util.List<Entity>> entry : entitiesByPosition.long2ObjectEntrySet()) {
++                long pos = entry.getLongKey();
++                java.util.List<Entity> entitiesAtPos = entry.getValue();
++                // Iterate over entitiesAtPos or do something with them
++                chunkSource.query(pos, (chunk) -> {
++                    // LevelChunk chunk
++                    duplicateCount.getAndAdd(entitiesAtPos.size() - 1);
++                    for (Entity entity: entitiesAtPos) {
++                        total.getAndIncrement();
++                        BlockPos blockposition = entity.blockPosition();
++                        MobCategory enumcreaturetype = entity.getType().getCategory();
++                        MobSpawnSettings.MobSpawnCost biomesettingsmobs_b = NaturalSpawner.getRoughBiome(blockposition, chunk).getMobSettings().getMobSpawnCost(entity.getType());
++
++                        if (biomesettingsmobs_b != null) {
++                            spawnercreatureprobabilities.addCharge(entity.blockPosition(), biomesettingsmobs_b.charge());
++                        }
++
++                        if (densityCapper != null && entity instanceof Mob) { // Paper
++                            densityCapper.addMob(chunk.getPos(), enumcreaturetype);
++                        }
++
++                        object2intopenhashmap.addTo(enumcreaturetype, 1);
++                        // Paper start
++                        if (countMobs) {
++                            chunk.level.getChunkSource().chunkMap.updatePlayerMobTypeMap(entity);
++                        }
++                        // Paper end
++                    }
++                });
++            }
++            System.out.println("Duplicates " + total.get() + " " + duplicateCount.get());
++        }
++
+         return new NaturalSpawner.SpawnState(spawningChunkCount, object2intopenhashmap, spawnercreatureprobabilities, densityCapper);
+     }
+ 

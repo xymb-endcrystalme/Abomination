@@ -1,0 +1,211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Wed, 31 Jan 2024 07:55:32 +0100
+Subject: [PATCH] Optimization: Throttle NaturalSpawner. Additional
+ improvements to MultiThreader.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 28a9e1ed94a89348aa10cf773f5926a8fd17222f..1eddd07d9bb91a3707bf40f920226493748bd897 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -325,9 +325,12 @@ public class KaiijuConfig {
+     // MultiThreader thread count
+     public static int multiThreaderThreadCount = 8;
+ 
+-    // Faster NaturalSpawner algorithm
++    // Faster NaturalSpawner algorithm BROKEN!!!
+     public static boolean fasterNaturalSpawnerAlgorithm = false;
+ 
++    // Throttle natural spawning to once every 10 ticks
++    public static boolean throttleMobSpawningDuringRuntime = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -350,6 +353,7 @@ public class KaiijuConfig {
+         dontSendNBTofShulkersHeldInHands = getBoolean("optimizations-dirty-will-change-name.dont-send-nbt-of-shulkers-held-in-hands", dontSendNBTofShulkersHeldInHands);
+         multiThreaderThreadCount = getInt("optimizations-dirty-will-change-name.multithreader-thread-count", multiThreaderThreadCount);
+         fasterNaturalSpawnerAlgorithm = getBoolean("optimizations-dirty-will-change-name.faster-natural-spawner-algorithm", fasterNaturalSpawnerAlgorithm);
++        throttleMobSpawningDuringRuntime = getBoolean("optimizations-dirty-will-change-name.throttle-mob-spawning-during-runtime", throttleMobSpawningDuringRuntime);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+index ae7d07b386cf3fc0b230802d746d9b1f673bf2cb..a0dfc3c32b5b2a3bad6ae70399ce243724126448 100644
+--- a/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
++++ b/src/main/java/io/papermc/paper/threadedregions/RegionizedWorldData.java
+@@ -333,6 +333,7 @@ public final class RegionizedWorldData {
+     private final IteratorSafeOrderedReferenceSet<Mob> navigatingMobs = new IteratorSafeOrderedReferenceSet<>();
+     public final dev.kaiijumc.kaiiju.KaiijuEntityThrottler entityThrottler = new dev.kaiijumc.kaiiju.KaiijuEntityThrottler(); // Kaiiju
+     public int entityActivationThrottle = 0; // Abomination
++    public int mobSpawnThrottle = 0; // Abomination
+ 
+     // block ticking
+     private final ObjectLinkedOpenHashSet<BlockEventData> blockEvents = new ObjectLinkedOpenHashSet<>();
+diff --git a/src/main/java/net/minecraft/server/level/ServerChunkCache.java b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+index 5c7680471f4eabaed69b0a2f9d9886d1a82830f6..4984db4b0c13f4c76b0cdfa423c801000d8896c4 100644
+--- a/src/main/java/net/minecraft/server/level/ServerChunkCache.java
++++ b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+@@ -488,7 +488,6 @@ public class ServerChunkCache extends ChunkSource {
+                 int naturalSpawnChunkCount = k;
+                 NaturalSpawner.SpawnState spawnercreature_d = null; // moved down
+                 profiler.startTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.MOB_SPAWN_ENTITY_COUNT); try { // Folia - profiler
+-long start = System.nanoTime();
+                 if ((this.spawnFriendlies || this.spawnEnemies) && this.level.paperConfig().entities.spawning.perPlayerMobSpawns) { // don't count mobs when animals and monsters are disabled
+                     // re-set mob counts
+                     for (ServerPlayer player : this.level.getLocalPlayers()) { // Folia - region threading
+@@ -505,12 +504,13 @@ long start = System.nanoTime();
+                         // Paper end - per player mob spawning backoff
+                     }
+                     if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableMobSpawningDuringRuntime) // Kaiiju
++                    if (!dev.kaiijumc.kaiiju.KaiijuConfig.throttleMobSpawningDuringRuntime || regionizedWorldData.mobSpawnThrottle++ % 10 == 7) // Abomination
+                     spawnercreature_d = NaturalSpawner.createState(naturalSpawnChunkCount, regionizedWorldData.getLoadedEntities(), this::getFullChunk, null, true); // Folia - region threading - note: function only cares about loaded entities, doesn't need all
+                 } else {
+                     if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableMobSpawningDuringRuntime) // Kaiiju
++                    if (!dev.kaiijumc.kaiiju.KaiijuConfig.throttleMobSpawningDuringRuntime || regionizedWorldData.mobSpawnThrottle++ % 10 == 7) // Abomination
+                     spawnercreature_d = NaturalSpawner.createState(naturalSpawnChunkCount, regionizedWorldData.getLoadedEntities(), this::getFullChunk, !this.level.paperConfig().entities.spawning.perPlayerMobSpawns ? new LocalMobCapCalculator(this.chunkMap) : null, false); // Folia - region threading - note: function only cares about loaded entities, doesn't need all
+                 }
+-System.out.println("NaturalSpawner " + ((System.nanoTime() - start) / 1000000.));
+                 } finally { profiler.stopTimer(ca.spottedleaf.leafprofiler.LProfilerRegistry.MOB_SPAWN_ENTITY_COUNT); } // Folia - profiler
+                 // Paper end
+                 this.level.timings.countNaturalMobs.stopTiming(); // Paper - timings
+diff --git a/src/main/java/net/minecraft/world/level/NaturalSpawner.java b/src/main/java/net/minecraft/world/level/NaturalSpawner.java
+index 5ee456c36b9e90824d536bd383996f9ad11db9a5..2b525a369c4bb3f24ae59d552e19610a0e0002f8 100644
+--- a/src/main/java/net/minecraft/world/level/NaturalSpawner.java
++++ b/src/main/java/net/minecraft/world/level/NaturalSpawner.java
+@@ -129,64 +129,68 @@ public final class NaturalSpawner {
+         }
+ 
+         } else {
+-            com.destroystokyo.paper.util.maplist.ReferenceList<Entity> entityList = (com.destroystokyo.paper.util.maplist.ReferenceList<Entity>)entities;
+-//            int size = entityList.size();
+-            while (iterator.hasNext()) {
+-                Entity entity = (Entity) iterator.next();
+-
+-                if (entity instanceof Mob) {
+-                    Mob entityinsentient = (Mob) entity;
+-
+-                    if (entityinsentient.isPersistenceRequired() || entityinsentient.requiresCustomPersistence()) {
+-                        continue;
+-                        //return;
+-                    }
+-                }
++            final com.destroystokyo.paper.util.maplist.ReferenceList<Entity> entityList = (com.destroystokyo.paper.util.maplist.ReferenceList<Entity>)entities;
++            int size = entityList.size();
++            final int threadCount = 1;//xymb.MultiThreader.getThreadCount();
++            for (int i = 0 ; i < threadCount ; i++) {
++                final int start = i;
++                Runnable r = () -> {
++                    for (int j = start ; j < size ; j += threadCount) {
++                        Entity entity = (Entity) entityList.getUnchecked(j);
++
++                        if (entity instanceof Mob) {
++                            Mob entityinsentient = (Mob) entity;
++
++                            if (entityinsentient.isPersistenceRequired() || entityinsentient.requiresCustomPersistence()) {
++                                continue;
++                                //return;
++                            }
++                        }
+ 
+-                MobCategory enumcreaturetype = entity.getType().getCategory();
++                        MobCategory enumcreaturetype = entity.getType().getCategory();
+ 
+-                if (enumcreaturetype != MobCategory.MISC) {
+-                    // Paper start - Only count natural spawns
+-                    if (!entity.level().paperConfig().entities.spawning.countAllMobsForSpawning &&
+-                        !(entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.NATURAL ||
+-                            entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CHUNK_GEN)) {
+-                        continue;
+-                        //return;
+-                    }
+-                    // Paper end
+-                    final BlockPos blockposition = entity.blockPosition();
+-                    Runnable r = () -> {
+-                        chunkSource.query(ChunkPos.asLong(blockposition), (chunk) -> {
+-                            // LevelChunk chunk
+-                            MobSpawnSettings.MobSpawnCost biomesettingsmobs_b = NaturalSpawner.getRoughBiome(blockposition, chunk).getMobSettings().getMobSpawnCost(entity.getType());
+-
+-                            if (biomesettingsmobs_b != null) {
+-                                synchronized(spawnercreatureprobabilities) {
+-                                spawnercreatureprobabilities.addCharge(entity.blockPosition(), biomesettingsmobs_b.charge());
+-                                }
++                        if (enumcreaturetype != MobCategory.MISC) {
++                            // Paper start - Only count natural spawns
++                            if (!entity.level().paperConfig().entities.spawning.countAllMobsForSpawning &&
++                                !(entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.NATURAL ||
++                                    entity.spawnReason == org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CHUNK_GEN)) {
++                                continue;
++                                //return;
+                             }
++                            // Paper end
++                            final BlockPos blockposition = entity.blockPosition();
++                            chunkSource.query(ChunkPos.asLong(blockposition), (chunk) -> {
++                                // LevelChunk chunk
++                                MobSpawnSettings.MobSpawnCost biomesettingsmobs_b = NaturalSpawner.getRoughBiome(blockposition, chunk).getMobSettings().getMobSpawnCost(entity.getType());
++
++                                if (biomesettingsmobs_b != null) {
++                                    synchronized(spawnercreatureprobabilities) {
++                                    spawnercreatureprobabilities.addCharge(entity.blockPosition(), biomesettingsmobs_b.charge());
++                                    }
++                                }
+ 
+-                            if (densityCapper != null && entity instanceof Mob) { // Paper
+-                                synchronized(densityCapper) {
+-                                densityCapper.addMob(chunk.getPos(), enumcreaturetype);
++                                if (densityCapper != null && entity instanceof Mob) { // Paper
++                                    synchronized(densityCapper) {
++                                    densityCapper.addMob(chunk.getPos(), enumcreaturetype);
++                                    }
+                                 }
+-                            }
+-                            synchronized(object2intopenhashmap) {
+-                            object2intopenhashmap.addTo(enumcreaturetype, 1);
+-                            }
+-                            // Paper start
+-                            if (countMobs) {
+-                                synchronized(chunk.level.getChunkSource().chunkMap) {
+-                                chunk.level.getChunkSource().chunkMap.updatePlayerMobTypeMap(entity);
++                                synchronized(object2intopenhashmap) {
++                                object2intopenhashmap.addTo(enumcreaturetype, 1);
+                                 }
+-                            }
+-                            // Paper end
+-                        });
+-                    };
+-                    xymb.MultiThreader.NaturalSpawner.execute(r);
+-                }
+-            }
++                                // Paper start
++                                if (countMobs) {
++                                    synchronized(chunk.level.getChunkSource().chunkMap) {
++                                    chunk.level.getChunkSource().chunkMap.updatePlayerMobTypeMap(entity);
++                                    }
++                                }
++                                // Paper end
++                            });
++                        }
++                    }
++                };
++                xymb.MultiThreader.NaturalSpawner.execute(r);
+ 
++            }
+         }
+         xymb.MultiThreader.NaturalSpawner.finish();
+ 
+diff --git a/src/main/java/xymb/MultiThreader.java b/src/main/java/xymb/MultiThreader.java
+index 47a5622b807423179dd1e22fe55b2d317d639809..ae1329452878cf26f16b09d1427599b0c2ee2805 100644
+--- a/src/main/java/xymb/MultiThreader.java
++++ b/src/main/java/xymb/MultiThreader.java
+@@ -22,6 +22,10 @@ public class MultiThreader {
+     private static final int parallelism = dev.kaiijumc.kaiiju.KaiijuConfig.multiThreaderThreadCount;
+     private static int tickThreads = 666;
+ 
++    public static int getThreadCount() {
++        return tickThreads;
++    }
++
+     public static void configureTickThreads(int tickThreads) {
+         MultiThreader.tickThreads = tickThreads;
+     }

@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Mon, 29 Jan 2024 05:01:04 +0100
+Subject: [PATCH] WIP Optimization: Don't send NBT of shulkers in hands.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 7d30c12d53b5338e20ae5b067291c5000e9e083d..245360b3782975817c043bc2123ca6b1ce8a9a95 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -318,6 +318,10 @@ public class KaiijuConfig {
+     // Always enable when using `NBT stash deduplication` for performance reasons
+     public static boolean skipUnnecessaryNBTCopy = false;
+ 
++    // Don't send NBT of shulkers held in hands.
++    // Important for performance. 100 players holding shulkers = a lot of data sent to clients, enough for disconnects.
++    public static boolean dontSendNBTofShulkersHeldInHands = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -337,6 +341,7 @@ public class KaiijuConfig {
+         throttleMobDespawns = getBoolean("optimizations-dirty-will-change-name.throttle-mob-despawns", throttleMobDespawns);
+         shulkerBoxFastMatch = getBoolean("optimizations-dirty-will-change-name.shulker-box-fast-match", shulkerBoxFastMatch);
+         skipUnnecessaryNBTCopy = getBoolean("optimizations-dirty-will-change-name.skip-unnecessary-nbt-copy", skipUnnecessaryNBTCopy);
++        dontSendNBTofShulkersHeldInHands = getBoolean("optimizations-dirty-will-change-name.dont-send-nbt-of-shulkers-held-in-hands", dontSendNBTofShulkersHeldInHands);
+     }
+ 
+     public static int packetReportInterval = 0;
+diff --git a/src/main/java/net/minecraft/server/level/ServerEntity.java b/src/main/java/net/minecraft/server/level/ServerEntity.java
+index ad89ccb3a26b1e02aa715321fc2bce1738506761..102cf5806931b5574852ebb4898a83df73281c10 100644
+--- a/src/main/java/net/minecraft/server/level/ServerEntity.java
++++ b/src/main/java/net/minecraft/server/level/ServerEntity.java
+@@ -35,8 +35,10 @@ import net.minecraft.world.entity.Mob;
+ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+ import net.minecraft.world.entity.decoration.ItemFrame;
+ import net.minecraft.world.entity.projectile.AbstractArrow;
++import net.minecraft.world.item.BlockItem;
+ import net.minecraft.world.item.ItemStack;
+ import net.minecraft.world.item.MapItem;
++import net.minecraft.world.level.block.ShulkerBoxBlock;
+ import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
+ import net.minecraft.world.phys.Vec3;
+ import org.slf4j.Logger;
+@@ -317,6 +319,19 @@ public class ServerEntity {
+         this.entity.startSeenByPlayer(player);
+     }
+ 
++    // Abomination start
++    public ItemStack abominationSanitizeItemStack(ItemStack stack) {
++        if(stack.getItem() instanceof BlockItem) {
++            if(((BlockItem)stack.getItem()).getBlock() instanceof ShulkerBoxBlock) {
++                ItemStack newStack = stack.slimCopy();
++                newStack.resetTag();
++                return newStack;
++            }
++        }
++        return stack;
++    }
++    // Abomination end
++
+     public void sendPairingData(ServerPlayer player, Consumer<Packet<ClientGamePacketListener>> sender) {
+         if (this.entity.isRemoved()) {
+             // CraftBukkit start - Remove useless error spam, just return
+@@ -367,6 +382,7 @@ public class ServerEntity {
+                 EquipmentSlot enumitemslot = aenumitemslot[j];
+                 ItemStack itemstack = ((LivingEntity) this.entity).getItemBySlot(enumitemslot);
+ 
++                if (dev.kaiijumc.kaiiju.KaiijuConfig.dontSendNBTofShulkersHeldInHands) itemstack = abominationSanitizeItemStack(itemstack); // Kaiiju
+                 if (!itemstack.isEmpty()) {
+                     // Paper start - prevent oversized data
+                     final ItemStack sanitized = LivingEntity.sanitizeItemStack(itemstack.copy(), false);
+diff --git a/src/main/java/net/minecraft/world/item/ItemStack.java b/src/main/java/net/minecraft/world/item/ItemStack.java
+index ef48ee2d8e17642f7fc82bc4bc605dbecb0d7ab3..f74f0cb5e5e3697fd5cc1401063544e8e0a7ab66 100644
+--- a/src/main/java/net/minecraft/world/item/ItemStack.java
++++ b/src/main/java/net/minecraft/world/item/ItemStack.java
+@@ -760,6 +760,10 @@ public final class ItemStack {
+         copy.tag = this.tag;
+         return copy;
+     }
++
++    public void resetTag() {
++        this.tag = null;
++    }
+     // Abomination end
+ 
+     public ItemStack copy() {

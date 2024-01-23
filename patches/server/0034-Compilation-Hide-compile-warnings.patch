@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Wed, 24 Jan 2024 07:49:03 +0100
+Subject: [PATCH] Compilation: Hide compile warnings.
+
+
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 99fda9e092fbd13262af87345cfc7d045f2f6006..bfe47f8bc6c301edb3fc4496764c2711f64ce6d2 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -97,6 +97,7 @@ tasks.jar {
+ tasks.compileJava {
+     // incremental compilation is currently broken due to patched files having compiled counterparts already on the compile classpath
+     options.setIncremental(false)
++    options.compilerArgs.add("-Xlint:none")
+ }
+ 
+ // Paper start - compile tests with -parameters for better junit parameterized test names

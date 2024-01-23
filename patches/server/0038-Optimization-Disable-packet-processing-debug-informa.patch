@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 01:39:45 +0100
+Subject: [PATCH] Optimization: Disable packet processing debug information.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index ee601c372aac389f2970710515c106874c572fc3..0f3f4c7246ed6feddb47afc58a1abc5d842500a2 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -277,6 +277,9 @@ public class KaiijuConfig {
+     // Disables parkNanos on Multithreader finish which allows to show finishes on flame graphs in JDK Mission Control
+     public static boolean flameGraphDebugMode = false;
+ 
++    // Packet processing deque is slow (about 20% of packet processing in flame graph) and it's used only for debugging
++    public static boolean disableDebugInformationForPacketProcessing = false;
++
+     private static void optimizationsDirtyWillChangeName() {
+         throttleLeavesTicking = getBoolean("optimizations-dirty-will-change-name.throttle-leaves-ticking", throttleLeavesTicking);
+         disableFluidTicking = getBoolean("optimizations-dirty-will-change-name.disable-fluid-ticking", disableFluidTicking);
+@@ -291,5 +294,6 @@ public class KaiijuConfig {
+         multithreadServerboundPackets = getBoolean("optimizations-dirty-will-change-name.multithread-serverbound-packets", multithreadServerboundPackets);
+         multithreadSendChanges = getBoolean("optimizations-dirty-will-change-name.multithread-send-changes", multithreadSendChanges);
+         flameGraphDebugMode = getBoolean("optimizations-dirty-will-change-name.fameGraphDebugMode", flameGraphDebugMode);
++        disableDebugInformationForPacketProcessing = getBoolean("optimizations-dirty-will-change-name.disable-debug-information-for-packet-processing", disableDebugInformationForPacketProcessing);
+     }
+ }
+diff --git a/src/main/java/net/minecraft/network/Connection.java b/src/main/java/net/minecraft/network/Connection.java
+index 7dd63112b77f379eca17212e1eb8d041d5655927..88636b67e79480306a6e17f8c92c9525b61d0e3f 100644
+--- a/src/main/java/net/minecraft/network/Connection.java
++++ b/src/main/java/net/minecraft/network/Connection.java
+@@ -643,11 +643,11 @@ public class Connection extends SimpleChannelInboundHandler<Packet<?>> {
+             // Paper start - limit the number of joins which can be processed each tick
+             if (true) { // Folia - region threading
+             // Paper start - detailed watchdog information
+-            net.minecraft.network.protocol.PacketUtils.packetProcessing.push(this.packetListener);
++            if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableDebugInformationForPacketProcessing) net.minecraft.network.protocol.PacketUtils.packetProcessing.push(this.packetListener);
+             try { // Paper end - detailed watchdog information
+             tickablepacketlistener.tick();
+             } finally { // Paper start - detailed watchdog information
+-                net.minecraft.network.protocol.PacketUtils.packetProcessing.pop();
++                if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableDebugInformationForPacketProcessing) net.minecraft.network.protocol.PacketUtils.packetProcessing.pop();
+             } // Paper end - detailed watchdog information
+             }
+             // Paper end
+diff --git a/src/main/java/net/minecraft/network/protocol/PacketUtils.java b/src/main/java/net/minecraft/network/protocol/PacketUtils.java
+index 7cc624505931dcb6696c3ef3ee3bbea74f77ad06..28eb09dc4d73e9028d1b20109a3ccd4da9a7c8c5 100644
+--- a/src/main/java/net/minecraft/network/protocol/PacketUtils.java
++++ b/src/main/java/net/minecraft/network/protocol/PacketUtils.java
+@@ -45,7 +45,7 @@ public class PacketUtils {
+     public static <T extends PacketListener> void ensureRunningOnSameThread(Packet<T> packet, T listener, BlockableEventLoop<?> engine) throws RunningOnDifferentThreadException {
+         if (!engine.isSameThread()) {
+             Runnable run = () -> { // Folia - region threading
+-                packetProcessing.push(listener); // Paper - detailed watchdog information
++                if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableDebugInformationForPacketProcessing) packetProcessing.push(listener); // Paper - detailed watchdog information // Abomination
+                 try { // Paper - detailed watchdog information
+                 if (MinecraftServer.getServer().hasStopped() || (listener instanceof ServerCommonPacketListenerImpl && ((ServerCommonPacketListenerImpl) listener).processedDisconnect)) return; // CraftBukkit, MC-142590
+                 if (listener.shouldHandleMessage(packet)) {
+@@ -90,7 +90,7 @@ public class PacketUtils {
+                 // Paper start - detailed watchdog information
+                 } finally {
+                     totalMainThreadPacketsProcessed.getAndIncrement();
+-                    packetProcessing.pop();
++                    if (!dev.kaiijumc.kaiiju.KaiijuConfig.disableDebugInformationForPacketProcessing) packetProcessing.pop(); // Abomination
+                 }
+                 // Paper end - detailed watchdog information
+ 

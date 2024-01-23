@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Sun, 28 Jan 2024 05:58:11 +0100
+Subject: [PATCH] Network optimization: Options that decrease sent packet
+ counts.
+
+
+diff --git a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+index 4ea8aa1b34169a81e8edfa7dbc1e7b1d6a22f5ef..01ad45888e49b138434f0cda022e3503d12642b3 100644
+--- a/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
++++ b/src/main/java/dev/kaiijumc/kaiiju/KaiijuConfig.java
+@@ -209,9 +209,29 @@ public class KaiijuConfig {
+     // This packet seems to be not used for anything in the client. At least my players haven't complained for a year.
+     public static boolean disableEntityMotionPacket = false;
+ 
++    // TODO description
++    public static int throttleEntityHeadRotation = 1;
++    public static int throttlePlayerHeadRotation = 1;
++    public static int throttleEntityRotation = 1;
++    public static int throttlePlayerRotation = 1;
++    public static boolean lowerEntityMovePrecision = false;
++    public static int playerPositionFullUpdateThrottling = 1;
++
+     private static void networkSettings() {
+         sendNullEntityPackets = getBoolean("network.send-null-entity-packets", sendNullEntityPackets);
+         disableEntityMotionPacket = getBoolean("network-settings.disable-entity-motion-packet", disableEntityMotionPacket);
++
++        lowerEntityMovePrecision = getBoolean("network-settings.lower-entity-move-precision", lowerEntityMovePrecision);
++        throttleEntityHeadRotation = getInt("network-settings.throttle-entity-head-rotation", throttleEntityHeadRotation);
++        if (throttleEntityHeadRotation < 1) throttleEntityHeadRotation = 1;
++        throttlePlayerHeadRotation = getInt("network-settings.throttle-player-head-rotation", throttlePlayerHeadRotation);
++        if (throttlePlayerHeadRotation < 1) throttlePlayerHeadRotation = 1;
++        throttleEntityRotation = getInt("network-settings.throttle-entity-rotation", throttleEntityRotation);
++        if (throttleEntityRotation < 1) throttleEntityRotation = 1;
++        throttlePlayerRotation = getInt("network-settings.throttle-player-rotation", throttlePlayerRotation);
++        if (throttlePlayerRotation < 1) throttlePlayerRotation = 1;
++        playerPositionFullUpdateThrottling = getInt("network-settings.player-position-full-update-throttling", playerPositionFullUpdateThrottling);
++        if (playerPositionFullUpdateThrottling < 1) playerPositionFullUpdateThrottling = 1;
+     }
+ 
+     public static boolean disableVanishApi = false;
+diff --git a/src/main/java/net/minecraft/server/level/ServerEntity.java b/src/main/java/net/minecraft/server/level/ServerEntity.java
+index 80c9919c36c815c77c2daf8ec721e35f45b7ca5f..ad89ccb3a26b1e02aa715321fc2bce1738506761 100644
+--- a/src/main/java/net/minecraft/server/level/ServerEntity.java
++++ b/src/main/java/net/minecraft/server/level/ServerEntity.java
+@@ -164,13 +164,21 @@ public class ServerEntity {
+                 i = Mth.floor(this.entity.getYRot() * 256.0F / 360.0F);
+                 j = Mth.floor(this.entity.getXRot() * 256.0F / 360.0F);
+                 Vec3 vec3d = this.entity.trackingPosition();
+-                boolean flag1 = this.positionCodec.delta(vec3d).lengthSqr() >= 7.62939453125E-6D;
+                 Packet<?> packet1 = null;
+-                boolean flag2 = flag1 || this.tickCount % 60 == 0;
+-                boolean flag3 = Math.abs(i - this.yRotp) >= 1 || Math.abs(j - this.xRotp) >= 1;
+                 boolean flag4 = false;
+                 boolean flag5 = false;
+ 
++                // Abomination start
++                int rotationThreshold = dev.kaiijumc.kaiiju.KaiijuConfig.throttleEntityRotation;
++                if (this.entity instanceof ServerPlayer) rotationThreshold = dev.kaiijumc.kaiiju.KaiijuConfig.throttlePlayerRotation;
++                double movePrecision = 7.62939453125E-6D;
++                if (dev.kaiijumc.kaiiju.KaiijuConfig.lowerEntityMovePrecision) movePrecision = 7.62939453125E-3D;
++
++                boolean flag1 = this.positionCodec.delta(vec3d).lengthSqr() >= movePrecision; // hasEntityMoved
++                boolean flag2 = flag1 || this.tickCount % (60 * dev.kaiijumc.kaiiju.KaiijuConfig.playerPositionFullUpdateThrottling) == 0; // fullUpdateRequired
++                boolean flag3 = Math.abs(i - this.yRotp) >= rotationThreshold || Math.abs(j - this.xRotp) >= rotationThreshold; // rotationChanged
++                // Abomination end
++
+                 if (!(this.entity instanceof net.minecraft.world.entity.decoration.HangingEntity) || this.tickCount > 0 || this.entity instanceof AbstractArrow) { // Paper - Always update position
+                     long k = this.positionCodec.encodeX(vec3d);
+                     long l = this.positionCodec.encodeY(vec3d);
+@@ -233,8 +241,13 @@ public class ServerEntity {
+                 this.wasRiding = false;
+             }
+ 
++            // Abomination start
++            int headRotationThreshold = dev.kaiijumc.kaiiju.KaiijuConfig.throttleEntityHeadRotation;
++            if (this.entity instanceof ServerPlayer) headRotationThreshold = dev.kaiijumc.kaiiju.KaiijuConfig.throttlePlayerHeadRotation;
++            // Abomination end
++
+             i = Mth.floor(this.entity.getYHeadRot() * 256.0F / 360.0F);
+-            if (Math.abs(i - this.yHeadRotp) >= 1) {
++            if (Math.abs(i - this.yHeadRotp) >= headRotationThreshold) { // Abomination
+                 this.broadcast.accept(new ClientboundRotateHeadPacket(this.entity, (byte) i));
+                 this.yHeadRotp = i;
+             }

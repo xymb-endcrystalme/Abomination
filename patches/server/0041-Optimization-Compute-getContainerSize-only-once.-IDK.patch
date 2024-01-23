@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xymb <xymb@endcrystal.me>
+Date: Thu, 25 Jan 2024 02:42:44 +0100
+Subject: [PATCH] Optimization: Compute getContainerSize only once. IDK why
+ it's so slow by default.
+
+
+diff --git a/src/main/java/net/minecraft/server/level/ServerPlayer.java b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+index 272a1c14e978fb6a7ce92e737c39fe8db585dc01..7a9fbfeca42804ee8c36cd8bc71ed3c1d85dadc7 100644
+--- a/src/main/java/net/minecraft/server/level/ServerPlayer.java
++++ b/src/main/java/net/minecraft/server/level/ServerPlayer.java
+@@ -870,7 +870,8 @@ public class ServerPlayer extends Player {
+                 super.tick();
+             }
+ 
+-            for (int i = 0; i < this.getInventory().getContainerSize(); ++i) {
++            int containerSize = this.getInventory().getContainerSize(); // Abomination - for some reason it's very slow
++            for (int i = 0; i < containerSize; ++i) { // Abomination
+                 ItemStack itemstack = this.getInventory().getItem(i);
+ 
+                 if (itemstack.getItem().isComplex()) {

@@ -1,3 +1,10 @@
+# Abomination - a WIP Folia/Kaiiju fork
+
+WIP, ETA early February.
+I'm working on pretty aggresive patches, you can check out the experimental_entity_multithreading branch if you're interested in progress. The goal is to multithread as much as possible to put as many players in a region as possible.
+
+# ###################################
+
 <div align="center">
   <img src="https://github.com/kugge/Kaiiju/blob/ver/1.19.3/logo.png?" width="32%" height="32%"/>
   <h1>Kaiiju</h1>
